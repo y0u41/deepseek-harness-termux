@@ -1,4 +1,60 @@
-# Prebuilt tarballs (built on-device, upload to a GitHub release)
+# ── Secrets / local credentials ──────────────────────────────────────────────
+# Never commit these, even accidentally.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.keystore
+credentials.json
+.credentials.yaml
+.npmrc
+auth.json
+
+# ── Build artifacts / release tarballs ───────────────────────────────────────
 dsh-termux.tgz
 dsh-termux-full.tgz
+*.tgz
+*.tar.gz
+*.zip
 prebuilt/prebuilt/android-arm64/*.node
+prebuilt/prebuilt/**/*.node
+!prebuilt/prebuilt/README.md
+
+# ── Node / package manager caches ────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-error.log*
+*.tsbuildinfo
+.npm/
+
+# ── dsh runtime state (never in the repo) ────────────────────────────────────
+.dsh/
+dsh-web-run.log
+dsh-web.pid
+*.log
+*.pid
+
+# ── Editor / OS noise ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+!.vscode/extensions.json
+
+# ── Local scratch ────────────────────────────────────────────────────────────
+tmp/
+.tmp/
+scratch/
+*.local
+*.bak
+*.bak-*
+*.orig
+*.rej
