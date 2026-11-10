@@ -12,10 +12,15 @@ needed.
 
 ## Install — two variants
 
-### Vendored (fully self-contained, ~57 MB) — recommended
+> ⚠️ **No release with prebuilt tarballs has been published yet**, so the
+> `releases/latest/download/...` URLs below do not resolve. Build the tarballs
+> yourself first (`bash scripts/build-prebuilt.sh` on a working install), then
+> install them locally as `npm i -g ./dsh-termux-full.tgz`.
+
+### Vendored (fully self-contained, ~110 MB) — recommended
 
 ```bash
-npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+npm i -g ./dsh-termux-full.tgz
 dsh web
 ```
 
@@ -39,7 +44,7 @@ from the bundle quickly.
 ### Layered (small, ~360 KB)
 
 ```bash
-npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
+npm i -g ./dsh-termux.tgz
 dsh-termux-setup
 dsh web
 ```
@@ -47,7 +52,7 @@ dsh web
 `dsh-termux-setup` fetches `@deepseek-ai/dsh` from the npm registry (with
 npmjs→npmmirror fallback), applies the bundled patches, and drops in the
 prebuilt natives. Small artifact; needs the registry at install time. Choose
-this only when the ~57 MB download matters.
+this only when the ~110 MB download matters.
 
 ## What `dsh-termux-setup` does
 
@@ -92,8 +97,10 @@ bash install.sh
 # 2. package the tarballs (both modes by default)
 DSH_DIR="$(npm root -g)/@deepseek-ai/dsh" bash scripts/build-prebuilt.sh
 #    MODES=layered | MODES=full to build only one
-# 3. upload dsh-termux.tgz and dsh-termux-full.tgz to a GitHub release, then
-#    users can install from the releases/latest/download URLs above
+# 3. distribute the two tarballs however you like:
+#    - attach them to a GitHub release and point the README at
+#      releases/latest/download/<name>
+#    - or hand them over directly: npm i -g ./dsh-termux-full.tgz
 ```
 
 The natives are N-API so they keep working across `dsh` updates; only bump the

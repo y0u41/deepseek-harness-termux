@@ -50,15 +50,28 @@ bash install.sh          # 5–15 分钟，本机编译 node-pty / koffi
 dsh web
 ```
 
-### 方案 B — 预编译原生模块（无需编译）
+### 方案 B — 预编译原生模块（**暂未发布**）
+
+> ⚠️ 预编译包**还没有发布 Release**，所以目前没有可以直接 `npm i -g` 的下载地址。
+> 现在请走方案 A。如果你不想在本机编译，可以自己构建一次预编译包：
+
+```bash
+# 先按方案 A 装出一个可用环境（只需要编译一次）
+bash install.sh
+# 再把当前安装打包成可重复分发的 tarball
+bash scripts/build-prebuilt.sh
+```
+
+`scripts/build-prebuilt.sh` 会产出 `dsh-termux.tgz`（分层，约 360 KB）和
+`dsh-termux-full.tgz`（全量，约 110 MB）。在另一台 arm64 设备上安装：
 
 ```bash
 # 全量包：自包含，装完直接可用
-npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+npm i -g ./dsh-termux-full.tgz
 dsh web
 
-# 分层包（356 KB，安装时从 npm 拉 dsh）：npm 12 起必须多跑一步
-npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
+# 分层包：npm 12 起必须多跑一步
+npm i -g ./dsh-termux.tgz
 dsh-termux-setup
 dsh web
 ```

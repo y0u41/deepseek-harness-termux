@@ -14,8 +14,7 @@
 ### 全量模式(完全自包含,约 57MB)— 推荐
 
 ```bash
-npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
-dsh-termux-setup   # npm 12 起必须显式执行，postinstall 默认被拦截
+npm i -g ./dsh-termux-full.tgz
 dsh web
 ```
 
@@ -27,8 +26,8 @@ dsh web
 ### 精简模式(小,约 360KB)
 
 ```bash
-npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
-dsh-termux-setup
+npm i -g ./dsh-termux.tgz
+dsh-termux-setup   # npm 12 起必须显式执行，postinstall 默认被拦截
 dsh web
 ```
 
@@ -64,8 +63,9 @@ bash install.sh
 # 2. 打包(默认两种模式都打)
 DSH_DIR="$(npm root -g)/@deepseek-ai/dsh" bash scripts/build-prebuilt.sh
 #    MODES=layered 或 MODES=full 只打其中一种
-# 3. 把 dsh-termux.tgz 和 dsh-termux-full.tgz 上传到 GitHub Release,
-#    用户即可从上面的 releases/latest/download 地址安装
+# 3. 两个 tarball 的用法自行决定:
+#    - 上传到 GitHub Release,再把 README 指向 releases/latest/download/<文件名>
+#    - 或直接传给对方: npm i -g ./dsh-termux-full.tgz
 ```
 
 原生模块是 N-API,因此 `dsh` 升级后仍可继续使用;只有当 `install.sh` 的补丁

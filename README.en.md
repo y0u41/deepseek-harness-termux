@@ -50,15 +50,29 @@ bash install.sh          # 5–15 min; compiles node-pty / koffi on device
 dsh web
 ```
 
-### Plan B — precompiled native modules (no compilation)
+### Plan B — precompiled native modules (**not published yet**)
+
+> ⚠️ No release with prebuilt tarballs has been published, so there is no
+> `npm i -g <url>` shortcut yet. Use Plan A. If you would rather not compile on
+> a second device, build the tarballs once on a working install:
+
+```bash
+# 1. get a working install (this compiles the natives once)
+bash install.sh
+# 2. package it into redistributable tarballs
+bash scripts/build-prebuilt.sh
+```
+
+That produces `dsh-termux.tgz` (layered, ~360 KB) and
+`dsh-termux-full.tgz` (vendored, ~110 MB). Install them on another arm64 device:
 
 ```bash
 # vendored: self-contained, nothing else to run
-npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+npm i -g ./dsh-termux-full.tgz
 dsh web
 
-# layered (356 KB, pulls dsh from npm): npm 12 needs the extra step
-npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
+# layered: npm 12 needs the extra step
+npm i -g ./dsh-termux.tgz
 dsh-termux-setup
 dsh web
 ```

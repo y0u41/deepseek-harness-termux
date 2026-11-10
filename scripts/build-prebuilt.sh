@@ -8,9 +8,13 @@
 #   dsh-termux-full.tgz   (vendored, ~55 MB)  — fully offline; bundles the
 #                          entire patched dsh + node_modules incl. natives
 #
-# Users install either with:
-#   npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
-#   npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+# Install them on another arm64 device with:
+#   npm i -g ./dsh-termux-full.tgz                  # self-contained
+#   npm i -g ./dsh-termux.tgz && dsh-termux-setup   # small, pulls dsh from npm
+#
+# To distribute via a GitHub release, attach both tarballs and point the README
+# at releases/latest/download/<name>. Both must be in the SAME release, and the
+# release must not be a pre-release, or releases/latest will not resolve.
 #
 # Usage:
 #   bash scripts/build-prebuilt.sh                 # uses the global install
@@ -217,6 +221,13 @@ for mode in $MODES; do
 done
 
 echo ""
-echo "==> Done. Upload both to a GitHub release, then users install:"
-echo "    npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz && dsh-termux-setup"
-echo "    npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz"
+echo "==> Done. Built:"
+echo "    $REPO_DIR/dsh-termux.tgz"
+echo "    $REPO_DIR/dsh-termux-full.tgz"
+echo ""
+echo "    Install on another arm64 device:"
+echo "      npm i -g ./dsh-termux-full.tgz                  # self-contained"
+echo "      npm i -g ./dsh-termux.tgz && dsh-termux-setup   # small, needs npm registry"
+echo ""
+echo "    To publish: attach BOTH files to one GitHub release (not a pre-release,"
+echo "    or releases/latest will not resolve), then update the README URLs."
