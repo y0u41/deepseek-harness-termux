@@ -1,6 +1,8 @@
 # deepseek-harness-termux
 
 > 这是一个针对 **Termux 原生环境**的 dsh 最小可用补丁与排雷集合，不是官方方案，也不保证跨版本长期有效。
+>
+> 本仓库基于 [Vengisk/deepseek-harness-termux](https://github.com/Vengisk/deepseek-harness-termux) 的上游工作继续维护：补丁思路、排错结论与预编译方案均源自该仓库，本仓库在此之上完成 dsh `0.2.2-rc.1` 适配、启动关键补丁（09/10/11）、安装前置校验与文档重构。上游作者的署名保留在 commit 历史中。
 
 `@deepseek-ai/dsh`（DeepSeek Harness，官方仓库 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)）的 npm 包是按 glibc Linux 构建的。在 Android/Termux 上它会以一种很难自己定位的方式启动失败 —— 不是缺依赖，而是缺一个**根本不存在的 android 平台预编译二进制**。
 

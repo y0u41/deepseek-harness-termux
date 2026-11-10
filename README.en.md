@@ -1,6 +1,8 @@
 # deepseek-harness-termux
 
 > A minimal but working patch-and-gotcha collection for running **dsh** on **native Termux**. Not an official solution, and not guaranteed to keep working across versions.
+>
+> This repository continues the upstream work of [Vengisk/deepseek-harness-termux](https://github.com/Vengisk/deepseek-harness-termux): the patch approach, troubleshooting findings and prebuilt packaging all originate there. On top of that, this fork adds the dsh `0.2.2-rc.1` port, the boot-critical patches (09/10/11), install-time preflight validation and a documentation rewrite. Upstream authorship is preserved in the commit history.
 
 [`@deepseek-ai/dsh`](https://github.com/deepseek-ai/deepseek-harness) (DeepSeek Harness) is published as a glibc Linux package. On Android/Termux it fails to start in a way that is hard to diagnose yourself — not because a dependency is missing, but because an **android-arm64 build of a required native addon simply does not exist**.
 
