@@ -42,7 +42,7 @@ pkg install -y nodejs-lts binutils make pkg-config clang python cmake patch git 
 ### 方案 A — 本机编译（完整控制）
 
 ```bash
-git clone https://github.com/Vengisk/deepseek-harness-termux.git
+git clone https://github.com/y0u41/deepseek-harness-termux.git
 cd deepseek-harness-termux
 bash install.sh          # 5–15 分钟，本机编译 node-pty / koffi
 dsh web
@@ -51,7 +51,7 @@ dsh web
 ### 方案 B — 预编译原生模块（无需编译）
 
 ```bash
-npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
 dsh web
 ```
 

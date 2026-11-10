@@ -15,7 +15,7 @@ needed.
 ### Vendored (fully self-contained, ~57 MB) — recommended
 
 ```bash
-npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
 dsh web
 ```
 
@@ -28,7 +28,7 @@ from the bundle quickly.
 ### Layered (small, ~360 KB)
 
 ```bash
-npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
+npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
 dsh web
 ```
 

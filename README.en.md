@@ -42,7 +42,7 @@ pkg install -y nodejs-lts binutils make pkg-config clang python cmake patch git 
 ### Plan A — compile on device (full control)
 
 ```bash
-git clone https://github.com/Vengisk/deepseek-harness-termux.git
+git clone https://github.com/y0u41/deepseek-harness-termux.git
 cd deepseek-harness-termux
 bash install.sh          # 5–15 min; compiles node-pty / koffi on device
 dsh web
@@ -51,7 +51,7 @@ dsh web
 ### Plan B — precompiled native modules (no compilation)
 
 ```bash
-npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
 dsh web
 ```
 

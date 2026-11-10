@@ -9,8 +9,8 @@
 #                          entire patched dsh + node_modules incl. natives
 #
 # Users install either with:
-#   npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
-#   npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+#   npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
+#   npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
 #
 # Usage:
 #   bash scripts/build-prebuilt.sh                 # uses the global install
@@ -176,5 +176,5 @@ done
 
 echo ""
 echo "==> Done. Upload both to a GitHub release, then users install:"
-echo "    npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz"
-echo "    npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz"
+echo "    npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz"
+echo "    npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz"

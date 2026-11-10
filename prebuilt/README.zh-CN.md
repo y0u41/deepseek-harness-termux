@@ -14,7 +14,7 @@
 ### 全量模式(完全自包含,约 57MB)— 推荐
 
 ```bash
-npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
 dsh web
 ```
 
@@ -26,7 +26,7 @@ dsh web
 ### 精简模式(小,约 360KB)
 
 ```bash
-npm i -g https://github.com/Vengisk/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
+npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
 dsh web
 ```
 

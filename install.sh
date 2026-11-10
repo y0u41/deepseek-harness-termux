@@ -712,7 +712,7 @@ if $_NATIVE_MISSING; then
     echo ""
     echo "  [ERROR] Native modules are missing — the install is incomplete."
     echo "  Re-run install.sh; if it persists, capture the output above and"
-    echo "  open an issue at https://github.com/Vengisk/deepseek-harness-termux"
+    echo "  open an issue at https://github.com/y0u41/deepseek-harness-termux"
     exit 1
 fi
 
