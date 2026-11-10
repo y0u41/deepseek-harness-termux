@@ -20,6 +20,33 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Options
+#   --force-reinstall   re-extract dsh from npm even if the pinned version is
+#                       already installed. Needed when the copy on disk carries
+#                       patches from an older release of this repo: those files
+#                       no longer match the current patches, so neither the
+#                       forward nor the reverse dry-run succeeds.
+FORCE_REINSTALL=0
+for arg in "$@"; do
+    case "$arg" in
+        --force-reinstall) FORCE_REINSTALL=1 ;;
+        -h|--help)
+            sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
+            echo ""
+            echo "Usage: bash install.sh [--force-reinstall]"
+            echo ""
+            echo "  --force-reinstall   re-extract dsh before patching (use this when"
+            echo "                      upgrading from an older dsh-termux release)"
+            echo ""
+            echo "Environment:"
+            echo "  DSH_VERSION=<ver>   dsh version to install (default: 0.2.2-rc.1)"
+            echo "  DSH_SKIP_PRECHECK=1 skip environment validation (unsupported)"
+            exit 0
+            ;;
+        *) echo "unknown argument: $arg (try --help)" >&2; exit 2 ;;
+    esac
+done
+
 # ── Preflight: environment validation ───────────────────────────────────────
 # Everything here fails LOUD and EARLY. A mis-detected platform previously
 # surfaced as an obscure gyp error ten minutes into a native build, which is
@@ -66,18 +93,20 @@ preflight() {
     esac
 
     # 3) Node version ---------------------------------------------------------
-    # Upstream engines is >=20, but dsh 0.2.2-rc.1's loader paths and the
-    # patches in this repo are validated on 24+. Older majors take a different
-    # internal-modules shape and will fail differently at boot.
+    # dsh's own engines field is >=24.9.0. The internal-modules shape and the
+    # --expose-internals fallback (patches 09/10) are only validated there, so
+    # do not guess: warn when node is absent (step 0 installs nodejs-lts) and
+    # fail when it is present but too old.
     if ! command -v node >/dev/null 2>&1; then
-        echo "  [ERROR] node not found. Install it first: pkg install -y nodejs-lts"
-        fatal=1
+        echo "  [WARN] node not found — will install nodejs-lts in step 0"
     else
-        local nv major
+        local nv major minor
         nv="$(node -v 2>/dev/null | sed 's/^v//')"
         major="$(printf '%s' "$nv" | cut -d. -f1)"
-        if [ -z "$major" ] || [ "$major" -lt 24 ] 2>/dev/null; then
-            echo "  [ERROR] Node $nv is too old (need >= 24)."
+        minor="$(printf '%s' "$nv" | cut -d. -f2)"
+        if [ -z "$major" ] || [ "$major" -lt 24 ] 2>/dev/null \
+            || { [ "$major" -eq 24 ] && [ "${minor:-0}" -lt 9 ]; } 2>/dev/null; then
+            echo "  [ERROR] Node $nv is too old (dsh requires >= 24.9.0)."
             echo "          pkg install -y nodejs-lts   # then re-run this script"
             fatal=1
         else
@@ -86,14 +115,16 @@ preflight() {
     fi
 
     # 4) Required host commands ----------------------------------------------
+    # These are NOT fatal here: a clean Termux does not have most of them yet,
+    # and step 0 installs every one of them. Failing at this point made the
+    # "fully automated" installer unusable on a fresh device. Re-checked after
+    # step 0 instead.
     local tool missing_tools=()
     for tool in bash uname sed grep awk tar curl patch git; do
         command -v "$tool" >/dev/null 2>&1 || missing_tools+=("$tool")
     done
     if [ ${#missing_tools[@]} -gt 0 ]; then
-        echo "  [ERROR] Missing required command(s): ${missing_tools[*]}"
-        echo "          pkg install -y ${missing_tools[*]}"
-        fatal=1
+        echo "  [INFO] Not installed yet (step 0 handles them): ${missing_tools[*]}"
     else
         echo "  [OK] Required host commands present"
     fi
@@ -136,28 +167,60 @@ cmd_exists() {
 
 apply_patch() {
     # apply_patch <patch-file> <package-dir>
-    # Returns 0 when the patch was applied NOW, 1 when it was skipped
-    # (already applied, inapplicable, or missing target).
+    # Three distinct outcomes — the old version collapsed "already applied" and
+    # "inapplicable" into one silent [SKIP], which is how a broken install could
+    # still end with "Installation complete!".
+    #   0 = applied now
+    #   1 = already applied (idempotent re-run)
+    #   2 = could not apply (source drifted / package missing / file missing)
+    #
+    # -F0: never allow context fuzz. A hunk that only matches with fuzzy
+    # context is a hunk that may land on the wrong lines.
     local patch="$1" dir="$2"
     if [ ! -f "$patch" ]; then
-        echo "  [WARN] patch file missing: $patch"
-        return 1
+        echo "  [FAIL] patch file missing: $(basename "$patch")"
+        return 2
     fi
     if [ ! -d "$dir" ]; then
-        echo "  [WARN] $(basename "$patch"): package dir not found ($dir) — skipping"
-        return 1
+        echo "  [FAIL] $(basename "$patch"): target package not found ($dir)"
+        return 2
     fi
-    if (cd "$dir" && patch -p1 --dry-run --forward < "$patch" > /dev/null 2>&1); then
-        (cd "$dir" && patch -p1 --forward < "$patch" > /dev/null 2>&1)
+    if (cd "$dir" && patch -p1 -F0 --dry-run --forward < "$patch" > /dev/null 2>&1); then
+        (cd "$dir" && patch -p1 -F0 --forward < "$patch" > /dev/null 2>&1)
         echo "  [OK] $(basename "$patch") -> $(basename "$dir")"
         return 0
     fi
-    echo "  [SKIP] $(basename "$patch") already applied or inapplicable ($dir)"
-    return 1
+    if (cd "$dir" && patch -p1 -F0 --dry-run --reverse < "$patch" > /dev/null 2>&1); then
+        echo "  [SKIP] $(basename "$patch") (already applied)"
+        return 1
+    fi
+    echo "  [FAIL] $(basename "$patch") — inapplicable (upstream source drifted?)"
+    return 2
+}
+
+# Patches whose absence breaks the install at runtime, not just a feature.
+# Without 09 dsh cannot boot (no android build of node-addon-require-builtin);
+# without 02 session persistence breaks; without 11 every materializing write
+# fails on flock; koffi-statx is required for koffi to build at all on bionic.
+apply_critical_patch() {
+    local rc=0
+    apply_patch "$1" "$2" || rc=$?
+    if [ "$rc" -eq 2 ]; then
+        echo ""
+        echo "  [ERROR] A critical patch could not be applied: $(basename "$1")"
+        echo "          Two causes, in order of likelihood:"
+        echo "            1. dsh on disk carries patches from an OLDER dsh-termux release."
+        echo "               Fix: bash install.sh --force-reinstall"
+        echo "            2. dsh is not the version these patches were generated against"
+        echo "               (pinned: ${DSH_VERSION})."
+        echo "          Refusing to continue: the result would crash at startup."
+        echo "          See troubleshooting.md > problem 1."
+        exit 1
+    fi
 }
 
 # ── Step 0: Install system dependencies ─────────────────────────────────────
-echo "==> [0/9] Checking & installing system dependencies..."
+echo "==> [0/10] Checking & installing system dependencies..."
 
 # Refresh package lists first. Stale lists are a common cause of "package not
 # found" / broken dependency resolution on older setups; if the refresh fails
@@ -182,11 +245,15 @@ SYSTEM_PKGS=(
     patch          # Apply source patches
     git            # Version check / metadata / git-hosted plugins
     proot          # User-space chroot for bash sandbox (Android fallback)
-    nodejs         # Node.js runtime
-    npm            # Package manager
+    ripgrep        # System rg — the glob/grep tools resolve it via patch 08
+    gawk           # `awk` is not a package name in Termux; gawk provides it
     curl           # Header tarball downloads
     which          # command -v fallback / diagnostics
 )
+# NOTE: deliberately NOT `nodejs`. Termux's `nodejs` package Conflicts with
+# `nodejs-lts` (which the README tells users to install), so listing it here
+# silently removed the user's Node and swapped majors under a running install.
+# Node is handled separately below: install nodejs-lts only when node is absent.
 
 PKGS_TO_INSTALL=()
 for pkg in "${SYSTEM_PKGS[@]}"; do
@@ -212,6 +279,34 @@ if [ ${#PKGS_TO_INSTALL[@]} -gt 0 ]; then
 else
     echo "  [OK] All system dependencies satisfied."
 fi
+
+# Node: install only when missing. Never install `nodejs` — it Conflicts with
+# `nodejs-lts` and would replace the user's (working) toolchain.
+if ! cmd_exists node; then
+    echo "  -> Installing nodejs-lts (node not found)..."
+    if pkg install -y nodejs-lts; then
+        echo "  [OK] nodejs-lts installed"
+    else
+        echo "  [ERROR] could not install nodejs-lts"
+        exit 1
+    fi
+fi
+
+# Re-check the host tools we actually depend on. Preflight could not fail on
+# these (a clean Termux has none of them), so verify now that step 0 ran.
+TOOLS_REQUIRED=(bash sed grep tar curl patch git node npm)
+MISSING_AFTER=()
+for tool in "${TOOLS_REQUIRED[@]}"; do
+    cmd_exists "$tool" || MISSING_AFTER+=("$tool")
+done
+# `awk` is provided by the gawk package on Termux.
+cmd_exists awk || MISSING_AFTER+=("awk")
+if [ ${#MISSING_AFTER[@]} -gt 0 ]; then
+    echo "  [ERROR] Still missing after install: ${MISSING_AFTER[*]}"
+    echo "          Try: pkg install -y ${MISSING_AFTER[*]}"
+    exit 1
+fi
+echo "  [OK] Required tools present"
 
 # Optional-but-recommended packages: not present in every Termux repo, so a
 # failure here is non-fatal.
@@ -249,7 +344,7 @@ if $TOOLS_MISSING; then
 fi
 
 # ── Step 1: Configure the native build environment (BEFORE anything compiles) ─
-echo "==> [1/9] Configuring native addon build environment..."
+echo "==> [1/10] Configuring native addon build environment..."
 
 # node-pty/koffi build via gyp: on Termux, gyp sees OS=android (python3 reports
 # sys.platform='android') and node's stock common.gypi has an android branch
@@ -317,7 +412,7 @@ NODE_GYP_CACHE="$HOME/.cache/node-gyp/$NODE_VER"
 # every later npm invocation print "npm warn Unknown env config nodedir".
 
 # ── Step 2: Pre-seed node headers + patch common.gypi ───────────────────────
-echo "==> [2/9] Ensuring node-gyp headers & patching common.gypi..."
+echo "==> [2/10] Ensuring node-gyp headers & patching common.gypi..."
 
 # node-gyp needs the node development headers under ~/.cache/node-gyp/<ver>.
 # On a fresh device this cache is empty and node-gyp would download them from
@@ -387,13 +482,27 @@ elif [ -f "$_common_gypi" ]; then
 fi
 
 # ── Step 3: npm install (download only, no compile yet) ─────────────────────
-echo "==> [3/9] Installing @deepseek-ai/dsh globally (no scripts)..."
+echo "==> [3/10] Installing @deepseek-ai/dsh globally (no scripts)..."
 
 # Multi-source download: official npm registry first, npmmirror (China) as
 # fallback. --ignore-scripts defers ALL native compilation to Step 5, where
 # the environment and source patches are ready. --foreground-scripts +
 # --loglevel verbose keep progress visible. A stall watchdog kills npm if it
 # produces no output for NPM_INSTALL_TIMEOUT seconds and tries the next source.
+
+# Pinned dsh version. The patches in patches/ are generated against this exact
+# upstream release; installing `@latest` (as this script used to) meant that the
+# day upstream published a new version, every patch would fail to apply and the
+# user got an install that crashed at boot with a success exit code.
+# Override deliberately: DSH_VERSION=0.2.3 bash install.sh
+: "${DSH_VERSION:=0.2.2-rc.1}"
+export DSH_VERSION
+case "$DSH_VERSION" in
+    *[!0-9A-Za-z.+-]*)
+        echo "  [ERROR] refusing suspicious DSH_VERSION: $DSH_VERSION"
+        exit 1
+        ;;
+esac
 
 NPM_INSTALL_TIMEOUT="${NPM_INSTALL_TIMEOUT:-600}"   # seconds without output
 NPM_MIRRORS=(
@@ -404,33 +513,37 @@ NPM_LOG_FILE="${PREFIX:-/data/data/com.termux/files/usr}/tmp/dsh-npm-install.log
 
 DSH_DIR="$(npm root -g)/@deepseek-ai/dsh"
 
-# Fast path: if the installed version already matches the latest release, skip
-# the npm install entirely. Re-running `npm install -g` re-extracts all 500+
-# packages (wiping our patches and native builds, which then all get redone),
-# so this check is what makes re-runs of install.sh truly fast and idempotent.
-# The patch/build steps below are themselves skip-aware and cover a partial
-# or broken previous install (missing pty.node/koffi.node get rebuilt).
+# Fast path: if the pinned version is already installed, skip the npm install.
+# Re-running `npm install -g` re-extracts all 500+ packages (wiping our patches
+# and native builds, which then all get redone), so this check is what makes
+# re-runs of install.sh truly fast and idempotent. Compares against the PINNED
+# version, not against the registry: `npm view` used to make a clean re-run fail
+# with an obscure error whenever the network was down.
 DSH_INSTALL_OK=false
-if [ -f "$DSH_DIR/package.json" ]; then
+if [ "$FORCE_REINSTALL" -eq 1 ]; then
+    echo "  [INFO] --force-reinstall: re-extracting @deepseek-ai/dsh@$DSH_VERSION"
+elif [ -f "$DSH_DIR/package.json" ]; then
     _installed_ver="$(node -p "require('$DSH_DIR/package.json').version" 2>/dev/null || true)"
-    _latest_ver="$(npm view @deepseek-ai/dsh version 2>/dev/null || true)"
-    if [ -n "$_installed_ver" ] && [ "$_installed_ver" = "$_latest_ver" ]; then
-        echo "  [SKIP] @deepseek-ai/dsh@$_installed_ver already installed (latest) — skipping npm install"
+    if [ "$_installed_ver" = "$DSH_VERSION" ]; then
+        echo "  [SKIP] @deepseek-ai/dsh@$_installed_ver already installed (pinned) — skipping npm install"
         DSH_INSTALL_OK=true
     else
-        echo "  [INFO] installed=$_installed_ver latest=$_latest_ver — installing @deepseek-ai/dsh@latest"
+        echo "  [INFO] installed=${_installed_ver:-none} pinned=$DSH_VERSION — installing"
     fi
 fi
 
 if ! $DSH_INSTALL_OK; then
 for _registry in "${NPM_MIRRORS[@]}"; do
     echo "" > "$NPM_LOG_FILE"
-    {
-        npm install -g --ignore-scripts @deepseek-ai/dsh@latest \
-            --registry="$_registry" \
-            --foreground-scripts \
-            --loglevel verbose
-    } > >(tee "$NPM_LOG_FILE") 2>&1 &
+    # No `{ ...; }` group around the command: that made $! the PID of a bash
+    # subshell, so the watchdog killed the subshell and left npm running as an
+    # orphan, writing into the same global prefix while the next mirror's npm
+    # started. $! must be npm itself.
+    npm install -g --ignore-scripts "@deepseek-ai/dsh@$DSH_VERSION" \
+        --registry="$_registry" \
+        --foreground-scripts \
+        --loglevel verbose \
+        > >(tee "$NPM_LOG_FILE") 2>&1 &
     _npm_pid=$!
 
     # Watchdog: no output for NPM_INSTALL_TIMEOUT seconds => kill, next mirror
@@ -447,9 +560,13 @@ for _registry in "${NPM_MIRRORS[@]}"; do
                 echo "  [DIAG] Network check:"
                 curl -sS --connect-timeout 5 -o /dev/null -w "    HTTP %{http_code} (%{time_total}s)" "$_registry" 2>&1 || echo "    UNREACHABLE"
                 echo ""
-                kill -TERM "$_npm_pid" 2>/dev/null
+                # Kill the children too: npm spawns worker processes that would
+                # otherwise survive the parent and keep writing to the prefix.
+                pkill -TERM -P "$_npm_pid" 2>/dev/null || true
+                kill -TERM "$_npm_pid" 2>/dev/null || true
                 sleep 2
-                kill -KILL "$_npm_pid" 2>/dev/null
+                pkill -KILL -P "$_npm_pid" 2>/dev/null || true
+                kill -KILL "$_npm_pid" 2>/dev/null || true
                 wait "$_npm_pid" 2>/dev/null || true
                 continue 2
             fi
@@ -468,36 +585,63 @@ fi
 
 if ! $DSH_INSTALL_OK; then
     echo "  [ERROR] All registries failed. Last resort: default npm settings"
-    npm install -g --ignore-scripts @deepseek-ai/dsh@latest && DSH_INSTALL_OK=true
+    npm install -g --ignore-scripts "@deepseek-ai/dsh@$DSH_VERSION" && DSH_INSTALL_OK=true
 fi
 
 if ! $DSH_INSTALL_OK; then
     echo "  [ERROR] npm install failed from all sources"
-    echo "  Try manually: npm install -g @deepseek-ai/dsh@latest"
-    echo "  Or with mirror: npm install -g @deepseek-ai/dsh@latest --registry=https://registry.npmmirror.com"
+    echo "  Try manually: npm install -g --ignore-scripts @deepseek-ai/dsh@$DSH_VERSION"
+    echo "  Or with mirror: npm install -g --ignore-scripts @deepseek-ai/dsh@$DSH_VERSION \\"
+    echo "                    --registry=https://registry.npmmirror.com"
     exit 1
 fi
 
 DSH_PKGS="$DSH_DIR/node_modules/@deepseek-ai"
 echo "  [OK] Package installed at: $DSH_DIR"
 
-# ── Step 4: Apply Android source patches ────────────────────────────────────
-echo "==> [4/9] Applying Android platform patches..."
+# ── Step 4: sharp WebAssembly fallback ──────────────────────────────────────
+echo "==> [4/10] Installing sharp WebAssembly fallback..."
+# MUST run before any shim is created. `npm install` inside the dsh directory
+# runs reify(), which deletes every top-level package that is not part of dsh's
+# dependency tree — including the hand-made platform shims created in the next
+# steps. Running this last (as this script used to) silently removed the flock
+# and ripgrep shims, so the following verify step failed and every re-run
+# repeated the same cycle.
+#   --no-save             do not write @img/* into dsh's package.json
+#   --package-lock=false  do not create a package-lock.json inside the package
+#   --ignore-scripts      sharp's own install scripts are pointless here
+SHARP_OK=false
+for _registry in "${NPM_MIRRORS[@]}"; do
+    if (cd "$DSH_DIR" && npm install @img/sharp-wasm32 \
+            --no-save --package-lock=false --ignore-scripts \
+            --registry="$_registry" > /dev/null 2>&1); then
+        SHARP_OK=true
+        break
+    fi
+done
+if $SHARP_OK; then
+    echo "  [OK] @img/sharp-wasm32 installed."
+else
+    echo "  [WARN] Could not install @img/sharp-wasm32 — attachments/preview will not work."
+    echo "         Retry later: pkg install -y nodejs-lts && bash install.sh"
+fi
 
-# Note: apply_patch returns 1 for "already applied / inapplicable" — under
-# `set -e` a top-level non-zero return would abort the script, so the plain
-# patch calls are guarded with `|| true` (their messages still print).
+# ── Step 5: Apply Android source patches ────────────────────────────────────
+echo "==> [5/10] Applying Android platform patches..."
+
+# Critical patches abort on failure (see apply_critical_patch); the rest only
+# degrade a feature and are reported as [FAIL] without stopping the install.
 apply_patch "$REPO_DIR/patches/01-terminal-bash-android-shell.patch"         "$DSH_PKGS/dsh-terminal-bash" || true
-apply_patch "$REPO_DIR/patches/02-session-persistence-link-rename.patch"      "$DSH_PKGS/dsh-session-persistence-jsonl" || true
+apply_critical_patch "$REPO_DIR/patches/02-session-persistence-link-rename.patch" "$DSH_PKGS/dsh-session-persistence-jsonl"
 apply_patch "$REPO_DIR/patches/03-subprocess-local-android.patch"             "$DSH_PKGS/dsh-subprocess-local" || true
 apply_patch "$REPO_DIR/patches/04-native-command-termux-open.patch"           "$DSH_PKGS/dsh-native-command" || true
 apply_patch "$REPO_DIR/patches/05-host-directory-picker-native-android.patch" "$DSH_PKGS/dsh-host-directory-picker-native" || true
 apply_patch "$REPO_DIR/patches/06-workspace-archive-skip-session-known-check.patch" "$DSH_PKGS/dsh-workspace" || true
 apply_patch "$REPO_DIR/patches/07-sandbox-local-proot-runner.patch"           "$DSH_PKGS/dsh-sandbox-local" || true
 apply_patch "$REPO_DIR/patches/08-dsh-tool-fs-search-android-rg.patch"         "$DSH_PKGS/dsh-tool-fs-search" || true
-apply_patch "$REPO_DIR/patches/09-app-boot-expose-internals.patch"            "$DSH_PKGS/dsh-app-boot" || true
+apply_critical_patch "$REPO_DIR/patches/09-app-boot-expose-internals.patch"    "$DSH_PKGS/dsh-app-boot"
 apply_patch "$REPO_DIR/patches/10-inspector-worker-expose-internals.patch"     "$DSH_PKGS/dsh-experimental-inspector" || true
-apply_patch "$REPO_DIR/patches/11-node-addon-system-flock-android.patch"       "$DSH_PKGS/node-addon-system" || true
+apply_critical_patch "$REPO_DIR/patches/11-node-addon-system-flock-android.patch" "$DSH_PKGS/node-addon-system"
 
 # ripgrep platform-package shim: @vscode/ripgrep resolves
 # @vscode/ripgrep-${platform}-${arch}, which for Termux is
@@ -528,9 +672,9 @@ else
     echo "  [WARN] system rg not found at $RG_SYSTEM — glob/grep tools need it (pkg install ripgrep)"
 fi
 
-# ── Step 5: Build native addons (koffi first — its statx() patch must be     ─
+# ── Step 6: Build native addons (koffi first — its statx() patch must be     ─
 #            baked into the binary) ───────────────────────────────────────────
-echo "==> [5/9] Building native addons..."
+echo "==> [6/10] Building native addons..."
 
 # node-gyp wrapper shipped with npm, for manual rebuilds
 NODE_GYP_BIN="$(dirname "$(dirname "$(command -v npm)")")/lib/node_modules/npm/bin/node-gyp-bin"
@@ -641,16 +785,8 @@ EOF
     fi
 fi
 
-# ── Step 6: Install sharp WebAssembly fallback ───────────────────────────────
-echo "==> [6/9] Installing sharp WebAssembly fallback..."
-if (cd "$DSH_DIR" && npm install @img/sharp-wasm32 > /dev/null 2>&1); then
-    echo "  [OK] @img/sharp-wasm32 installed."
-else
-    echo "  [WARN] Could not install @img/sharp-wasm32 (may already be present)."
-fi
-
 # ── Step 7: Install mobile-adaptive UI plugin ────────────────────────────────
-echo "==> [7/9] Installing dsh-web-mobile (mobile-adaptive UI plugin)..."
+echo "==> [7/10] Installing dsh-web-mobile (mobile-adaptive UI plugin)..."
 # dsh-web-mobile by @mexiaosqwq: on narrow screens (<1024px) hides the sidebar
 # rail and turns the directory into an overlay drawer, giving the conversation
 # full width. Pure client plugin — no effect on desktop (>=1024px).
@@ -673,7 +809,7 @@ if ! cmd_exists pnpm; then
     fi
 fi
 
-if [ -f "$WEB_PROFILE_DIR/package.json" ] && grep -q "dsh-mobile-nav" "$WEB_PROFILE_DIR/package.json" 2>/dev/null; then
+if [ -f "$WEB_PROFILE_DIR/package.json" ] && grep -q "dsh-web-mobile" "$WEB_PROFILE_DIR/package.json" 2>/dev/null; then
     echo "  [SKIP] dsh-web-mobile already installed"
 elif node --expose-internals "$DSH_DIR/lib/bin.js" plugin --profile web add github:mexiaosqwq/dsh-web-mobile 2>&1; then
     echo "  [OK] dsh-web-mobile installed"
@@ -683,7 +819,7 @@ else
 fi
 
 # ── Step 8: Verify environment ───────────────────────────────────────────────
-echo "==> [8/9] Verifying environment..."
+echo "==> [8/10] Verifying environment..."
 NODE_VER_CUR=$(node -v 2>/dev/null || echo "not found")
 echo "  Node.js: $NODE_VER_CUR"
 echo "  dsh dir: $DSH_DIR"
@@ -707,6 +843,11 @@ if [ -f "$FLOCK_NODE" ]; then
 else
     echo "    [MISS] flock android-arm64 system.node"
     _NATIVE_MISSING=true
+fi
+if [ -f "$RG_SHIM/package.json" ]; then
+    echo "    [OK] ripgrep android shim"
+else
+    echo "    [WARN] ripgrep android shim missing (patch 08 falls back to system rg)"
 fi
 if $_NATIVE_MISSING; then
     echo ""
@@ -748,7 +889,7 @@ for patch_file in "$REPO_DIR"/patches/*.patch; do
 done
 
 # ── Step 9: Runtime smoke test ───────────────────────────────────────────────
-echo "==> [9/9] Runtime smoke test..."
+echo "==> [9/10] Runtime smoke test..."
 if (cd "$DSH_DIR" && node -e "require('node-pty'); process.exit(0)" 2>/dev/null); then
     echo "  node-pty: OK"
 else
@@ -769,11 +910,13 @@ else
 fi
 
 # flock (session write lease) — android-arm64 N-API addon via the platform shim
-if (cd "$DSH_DIR" && node --input-type=module -e 'import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock"; import { openSync } from "node:fs"; const fd = openSync(process.env.HOME + "/.dsh-flock-smoke", "w"); await tryLockExclusive(fd); console.log("ok")' 2>/dev/null | grep -q ok); then
+_FLOCK_SMOKE="$(mktemp "${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}/dsh-flock.XXXXXX")"
+if (cd "$DSH_DIR" && node --input-type=module -e "import { tryLockExclusive } from '@deepseek-ai/node-addon-system/flock'; import { openSync, closeSync } from 'node:fs'; const fd = openSync('$_FLOCK_SMOKE', 'w'); await tryLockExclusive(fd); closeSync(fd); console.log('ok')" 2>/dev/null | grep -q ok); then
     echo "  flock: OK"
 else
     echo "  [WARN] flock android-arm64 addon failed — session writes may fail"
 fi
+rm -f "$_FLOCK_SMOKE"
 
 # Sandbox smoke test: verify proot runner is active for Android
 echo "  bash sandbox:"
@@ -790,10 +933,6 @@ console.log('loaded');
 else
     echo "    (non-Android or proot missing — skipped)"
 fi
-
-echo ""
-echo "==> Installation complete!"
-echo ""
 
 # ── Make `dsh` usable directly (no manual alias needed) ─────────────────────
 # 1) Patch the installed bin.js shebang so npm's own `dsh` bin always runs
@@ -836,4 +975,25 @@ fi
 echo ""
 echo "  (Your existing shell config was never overwritten.)"
 echo ""
+
+# ── Final gate: prove that dsh actually starts ──────────────────────────────
+# Everything above can pass while the install is still unusable (a missing
+# boot patch only shows up when dsh loads its plugin host). This is the one
+# check that matches reality, so it is the last thing before "complete".
+echo "==> Verifying dsh starts..."
+if (cd "$DSH_DIR" && node --expose-internals ./lib/bin.js --version > /dev/null 2>&1); then
+    echo "  [OK] dsh --version"
+else
+    echo ""
+    echo "  [ERROR] dsh does not start. The install is NOT usable."
+    echo "          Re-run install.sh and read the patch section above; if it"
+    echo "          reports [FAIL] patches, the pinned dsh version has drifted."
+    echo "          See troubleshooting.md > problem 1."
+    exit 1
+fi
+
+echo ""
+echo "==> Installation complete!"
+echo ""
 echo "Now run:  dsh web"
+

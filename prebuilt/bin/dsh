@@ -1,13 +1,25 @@
 #!/usr/bin/env bash
 # dsh launcher for the prebuilt Termux deployment (Plan B).
 #
-# The postinstall of dsh-termux deploys the patched @deepseek-ai/dsh into the
-# npm global root; this launcher resolves that deployment and boots it with
+# The installer (install.js) deploys the patched @deepseek-ai/dsh into the npm
+# global root; this launcher resolves that deployment and boots it with
 # --expose-internals (required by the HMR plugin).
+#
+# If the deployment is missing (e.g. npm >= 12 skipped the postinstall, see
+# prebuilt/README.md), the launcher runs the installer once and then continues
+# instead of failing with "Cannot find module".
 set -euo pipefail
 
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+PKG_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
 # bin/dsh -> <globalRoot>/lib/node_modules/dsh-termux/bin/dsh
-# We need <globalRoot>/node_modules/@deepseek-ai/dsh/lib/bin.js
-NODE_MODULES="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
+# We need <globalRoot>/lib/node_modules/@deepseek-ai/dsh/lib/bin.js
+NODE_MODULES="$(cd "$PKG_DIR/../.." && pwd)"
+DSH_BIN="$NODE_MODULES/@deepseek-ai/dsh/lib/bin.js"
 
-exec node --expose-internals "$NODE_MODULES/@deepseek-ai/dsh/lib/bin.js" "$@"
+if [ ! -f "$DSH_BIN" ]; then
+    echo "dsh-termux: deployment missing — running the installer once..." >&2
+    node "$PKG_DIR/install.js"
+fi
+
+exec node --expose-internals "$DSH_BIN" "$@"

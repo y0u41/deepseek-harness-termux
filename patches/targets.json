@@ -1,0 +1,56 @@
+{
+  "_comment": "Single source of truth for patch -> target package. Consumed by .github/workflows/ci.yml. install.sh, healthcheck.sh and prebuilt/install.js keep their own tables (they run on-device without node/jq guarantees), but CI fails when a patch file has no entry here, so a newly added patch cannot be silently skipped everywhere.",
+  "dshVersion": "0.2.2-rc.1",
+  "patches": {
+    "01-terminal-bash-android-shell.patch": {
+      "package": "@deepseek-ai/dsh-terminal-bash",
+      "critical": false
+    },
+    "02-session-persistence-link-rename.patch": {
+      "package": "@deepseek-ai/dsh-session-persistence-jsonl",
+      "critical": true
+    },
+    "03-subprocess-local-android.patch": {
+      "package": "@deepseek-ai/dsh-subprocess-local",
+      "critical": false
+    },
+    "04-native-command-termux-open.patch": {
+      "package": "@deepseek-ai/dsh-native-command",
+      "critical": false
+    },
+    "05-host-directory-picker-native-android.patch": {
+      "package": "@deepseek-ai/dsh-host-directory-picker-native",
+      "critical": false
+    },
+    "06-workspace-archive-skip-session-known-check.patch": {
+      "package": "@deepseek-ai/dsh-workspace",
+      "critical": false
+    },
+    "07-sandbox-local-proot-runner.patch": {
+      "package": "@deepseek-ai/dsh-sandbox-local",
+      "critical": false
+    },
+    "08-dsh-tool-fs-search-android-rg.patch": {
+      "package": "@deepseek-ai/dsh-tool-fs-search",
+      "critical": false
+    },
+    "09-app-boot-expose-internals.patch": {
+      "package": "@deepseek-ai/dsh-app-boot",
+      "critical": true
+    },
+    "10-inspector-worker-expose-internals.patch": {
+      "package": "@deepseek-ai/dsh-experimental-inspector",
+      "critical": false
+    },
+    "11-node-addon-system-flock-android.patch": {
+      "package": "@deepseek-ai/node-addon-system",
+      "version": "0.1.2",
+      "critical": true
+    },
+    "koffi-statx.patch": {
+      "package": "koffi",
+      "version": "3.1.1",
+      "critical": true
+    }
+  }
+}

@@ -1,17 +1,16 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -526,7 +526,13 @@
+@@ -526,7 +526,12 @@
  	archiveSession(sessionId, options = {}) {
  		return this.enqueueOperation(async () => {
  			if (this.requireState().archivedSessionIds.includes(sessionId)) return;
 -			if (!await this.sessionKnown(sessionId)) throw new WorkspaceUnknownSessionError(sessionId, "archive");
-+			// Termux: skip the sessionKnown() existence check. Sessions visible
-+			// in the UI may be absent from persistence (empty session dirs after
-+			// an unclean shutdown, or live sessions that were never persisted).
-+			// Archiving is just appending an id to a list — it should not
-+			// require the session to exist in storage. Without this, the
-+			// "Archive" button silently fails (session-not-found) and the
-+			// frontend only console.warn's, so the user sees no feedback.
++			// Termux (patch 06): on Android a session visible in the UI can be absent
++			// from persistence (unclean shutdown, or a live session that was never
++			// persisted). The Archive button then failed with session-not-found and
++			// the UI only console.warn'd it, so the user saw nothing happen.
++			// Scoped to android on purpose: upstream's invariant still holds elsewhere.
++			if (process.platform !== "android" && !await this.sessionKnown(sessionId)) throw new WorkspaceUnknownSessionError(sessionId, "archive");
  			if (options.stopActivity !== true) {
  				const activity = await this.ctx.waterfall("workspace/session-activity", { sessionId }, () => Promise.resolve([]));
  				if (activity.length > 0) throw new WorkspaceActiveSessionError(sessionId, activity);

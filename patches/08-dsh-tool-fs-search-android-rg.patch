@@ -8,28 +8,31 @@
  import { HarnessError } from "@deepseek-ai/dsh-llm";
  import { ItemRetainer, TextRetainer } from "@deepseek-ai/dsh-output-retention";
  //#region lib/types/search-core.js
-@@ -122,8 +123,22 @@
+@@ -122,8 +123,25 @@
  		const executable = parse(process.execPath);
  		const executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;
  		if ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;
 -		const dependency = (await import("@vscode/ripgrep")).rgPath;
 -		return process.versions.electron === void 0 ? dependency : dependency.replace(/\.asar(?=[\\/])/u, ".asar.unpacked");
-+		// Termux compatibility (android-arm64): `@vscode/ripgrep` ships no
-+		// platform package; resolve via require.resolve (no module evaluation)
-+		// with a system-rg fallback.
++		// Termux (patch 08): @vscode/ripgrep ships no android-arm64 platform
++		// package. Resolve the platform package without evaluating it, then fall
++		// back to a system rg. Keep the Electron .asar -> .asar.unpacked rewrite
++		// so desktop installs behave exactly as upstream.
 +		const require = createRequire(import.meta.url);
 +		const binaryName = process.platform === "win32" ? "rg.exe" : "rg";
++		const unpackAsar = (candidate) => process.versions.electron === void 0 ? candidate : candidate.replace(/\.asar(?=[\\/])/u, ".asar.unpacked");
 +		try {
-+			return require.resolve(`@vscode/ripgrep-${process.platform}-${process.arch}/bin/${binaryName}`);
-+		} catch {
-+			const candidates = process.env.RIPGREP_BIN
-+				? [process.env.RIPGREP_BIN]
-+				: ["/data/data/com.termux/files/usr/bin/rg", "/usr/bin/rg", "/usr/local/bin/rg"];
-+			for (const candidate of candidates) {
-+				if (candidate && existsSync(candidate)) return candidate;
-+			}
-+			throw new Error(`Could not resolve packaged ripgrep for ${process.platform}-${process.arch} and no system rg was found`);
-+		}
++			return unpackAsar(require.resolve(`@vscode/ripgrep-${process.platform}-${process.arch}/bin/${binaryName}`));
++		} catch {}
++		const prefix = process.env.PREFIX || "/data/data/com.termux/files/usr";
++		const candidates = [
++			process.env.RIPGREP_BIN,
++			`${prefix}/bin/rg`,
++			"/usr/bin/rg",
++			"/usr/local/bin/rg"
++		].filter(Boolean);
++		for (const candidate of candidates) if (existsSync(candidate)) return unpackAsar(candidate);
++		throw new Error(`ripgrep not found for ${process.platform}-${process.arch}: no @vscode/ripgrep platform package and no system rg (pkg install ripgrep)`);
  	});
  	return rgPathPromise;
  }

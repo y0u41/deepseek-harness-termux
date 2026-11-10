@@ -1,0 +1,71 @@
+name: Bug report
+description: 报告安装失败、启动崩溃或行为异常
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先读 [`troubleshooting.md`](../blob/main/troubleshooting.md)。
+        绝大多数启动崩溃是"补丁没打上"或"Node 版本不对"，自检脚本能直接指出来。
+
+  - type: textarea
+    id: healthcheck
+    attributes:
+      label: healthcheck 输出（必填）
+      description: |
+        在 Termux 里运行下面三行，把输出原样贴进来。没有这段输出很难定位问题。
+        ```
+        bash healthcheck.sh
+        echo "---- exit: $? ----"
+        node -v; npm -v; uname -m
+        ```
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 你做了什么 / 期望什么 / 实际什么
+      description: 安装命令、执行的操作、观察到的现象。报错请贴完整的第一段堆栈。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: route
+    attributes:
+      label: 安装方式
+      options:
+        - 方案 A：bash install.sh（本机编译）
+        - 方案 B：npm i -g + dsh-termux-setup（预编译）
+        - 其他 / 不确定
+    validations:
+      required: true
+
+  - type: dropdown
+    id: node
+    attributes:
+      label: Node 版本
+      description: dsh 要求 >= 24.9.0
+      options:
+        - "26.x"
+        - "24.9+"
+        - "24.0–24.8"
+        - "22.x 或更早"
+        - 不确定
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: dsh-termux 版本
+      description: 仓库 tag 或 `git -C <repo> describe --tags`（例如 v0.2.2-termux.2）
+      placeholder: v0.2.2-termux.2
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他信息
+      description: Android 版本、设备型号、是否 root、是否 proot、有没有装 termux-api 等

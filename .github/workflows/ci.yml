@@ -1,0 +1,151 @@
+name: CI
+
+# 目标：在没有 Android 设备的 runner 上，拦住最容易回归的四类问题
+#   1. shell / JS 语法错误、明显的 shell 缺陷（shellcheck）
+#   2. 补丁与上游 dsh 版本脱钩（拉取 pin 版本的原始包，逐个 patch --dry-run -F0）
+#   3. 版本号在多处硬编码后不同步 / 悄悄退回 @latest
+#   4. 新增补丁文件但没有登记到 patches/targets.json（会被静默跳过）
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # 每周一 03:00 UTC：上游一旦发新版，补丁适用性会先红，而不是等用户报障
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DSH_VERSION: "0.2.2-rc.1"
+
+jobs:
+  syntax:
+    name: 语法与静态检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n
+        run: |
+          set -euo pipefail
+          status=0
+          for f in install.sh healthcheck.sh scripts/*.sh prebuilt/bin/dsh; do
+            printf '%-34s' "$f"
+            if bash -n "$f"; then echo OK; else echo FAIL; status=1; fi
+          done
+          exit $status
+
+      - name: node --check
+        run: |
+          set -euo pipefail
+          node --check prebuilt/install.js
+          node --check prebuilt/bin/setup.js
+
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          shellcheck --version
+          # -S warning：error 与 warning 级必须为 0；info/style 暂不设卡
+          shellcheck -S warning -x install.sh healthcheck.sh scripts/*.sh prebuilt/bin/dsh
+
+  version-consistency:
+    name: 版本与映射一致性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: dsh 版本在各处一致
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in install.sh prebuilt/install.js; do
+            if ! grep -q "$DSH_VERSION" "$f"; then
+              echo "::error file=$f::未出现 pin 的版本 $DSH_VERSION"
+              fail=1
+            fi
+          done
+          pin=$(node -p "require('./patches/targets.json').dshVersion")
+          if [ "$pin" != "$DSH_VERSION" ]; then
+            echo "::error file=patches/targets.json::dshVersion=$pin 与工作流 DSH_VERSION=$DSH_VERSION 不一致"
+            fail=1
+          fi
+          exit $fail
+
+      - name: 不允许悄悄退回 @latest
+        run: |
+          set -euo pipefail
+          if grep -n 'dsh@latest' install.sh prebuilt/install.js; then
+            echo "::error::仍在安装 @latest，补丁只对 $DSH_VERSION 生成"
+            exit 1
+          fi
+          echo "OK: 没有 @latest"
+
+      - name: Node 门槛一致（>=24.9.0）
+        run: |
+          set -euo pipefail
+          fail=0
+          grep -q '24, 9, 0\|24\.9\.0' prebuilt/install.js || { echo "::error file=prebuilt/install.js::Node 门槛不是 24.9.0"; fail=1; }
+          grep -q '>=24\.9\.0\|>= 24\.9\.0' prebuilt/package.json || { echo "::error file=prebuilt/package.json::engines 不是 >=24.9.0"; fail=1; }
+          grep -q '24\.9' healthcheck.sh || { echo "::error file=healthcheck.sh::Node 门槛未更新"; fail=1; }
+          exit $fail
+
+      - name: 每个补丁都在 targets.json 里登记
+        run: |
+          set -euo pipefail
+          node - <<'EOF'
+          const fs = require("fs");
+          const targets = require("./patches/targets.json").patches;
+          const files = fs.readdirSync("patches").filter((f) => f.endsWith(".patch"));
+          const missing = files.filter((f) => !targets[f]);
+          const extra = Object.keys(targets).filter((f) => !files.includes(f));
+          for (const f of missing) console.log(`::error file=patches/${f}::补丁未登记到 patches/targets.json`);
+          for (const f of extra) console.log(`::error file=patches/targets.json::登记了不存在的补丁 ${f}`);
+          if (missing.length || extra.length) process.exit(1);
+          console.log(`OK: ${files.length} 个补丁全部登记`);
+          EOF
+
+  patch-applicability:
+    name: 补丁适用性（${{ env.DSH_VERSION }}）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 拉取 pin 版本的原始包并逐个 dry-run
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pkgs
+          node - <<'EOF' > /tmp/pkgs/list.tsv
+          const t = require("./patches/targets.json").patches;
+          for (const [file, meta] of Object.entries(t)) {
+            const ver = meta.version || process.env.DSH_VERSION || "0.2.2-rc.1";
+            console.log(`${file}\t${meta.package}\t${ver}`);
+          }
+          EOF
+
+          fail=0
+          while IFS=$'\t' read -r file pkg ver; do
+            dir="/tmp/pkgs/${file%.patch}"
+            mkdir -p "$dir"
+            if ! (cd "$dir" && npm pack "${pkg}@${ver}" --silent >/dev/null 2>&1); then
+              echo "::error file=patches/$file::无法从 npm 拉取 ${pkg}@${ver}"
+              fail=1
+              continue
+            fi
+            tar -xzf "$dir"/*.tgz -C "$dir" --strip-components=1
+            # -F0：不允许上下文模糊匹配。补丁只能精确命中，否则视为漂移。
+            if ( cd "$dir" && patch -p1 -F0 --dry-run < "$GITHUB_WORKSPACE/patches/$file" >/dev/null 2>&1 ); then
+              echo "OK   $file"
+            else
+              echo "::error file=patches/$file::补丁无法精确应用（-F0），上游已变更，需要重新生成"
+              ( cd "$dir" && patch -p1 -F0 --dry-run < "$GITHUB_WORKSPACE/patches/$file" 2>&1 | head -5 | sed 's/^/     /' ) || true
+              fail=1
+            fi
+          done < /tmp/pkgs/list.tsv
+          exit $fail

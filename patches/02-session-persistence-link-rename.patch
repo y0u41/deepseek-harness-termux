@@ -5,18 +5,22 @@
  import { SessionFormatUnsupportedMigrationError, createSessionFormatCatalogWithChildren, historicalSessionFormatCatalog, sessionFormatCatalog } from "@deepseek-ai/dsh-session-format-catalog";
  import { readdirSync } from "node:fs";
 -import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, truncate } from "node:fs/promises";
-+import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, rename, stat, truncate } from "node:fs/promises";
++import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, truncate } from "node:fs/promises";
  import { basename, dirname, isAbsolute, join, parse, resolve, toNamespacedPath } from "node:path";
  import { performance } from "node:perf_hooks";
  import { scheduler } from "node:timers/promises";
-@@ -3233,6 +3233,10 @@
+@@ -3233,6 +3233,14 @@
  		try {
  			await link(tmp, finalPath);
  			linked = true;
 +		} catch (error) {
-+			/* Android sepolicy blocks link(2) (EACCES/EPERM); fall back to same-filesystem atomic rename */
-+			if (error?.code === "EACCES" || error?.code === "EPERM") await rename(tmp, finalPath);
-+			else throw error;
++			/* Android sepolicy denies link(2) with EACCES/EPERM; fall back to a same-filesystem atomic rename. */
++			if (error?.code !== "EACCES" && error?.code !== "EPERM") throw error;
++			/* rename(2) overwrites while link(2) is create-only: keep the no-clobber guarantee. */
++			const exists = await lstat(finalPath).then(() => true, () => false);
++			if (exists) throw new Error(`session log already exists: ${finalPath}`, { cause: error });
++			await rename(tmp, finalPath);
++			linked = true;
  		} finally {
  			/* v8 ignore next -- link failure is the TOCTOU/IO race guarded above; not reachable in test */
  			if (!linked) await rm(tmp, { force: true });

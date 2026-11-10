@@ -15,6 +15,7 @@
 
 ```bash
 npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
+dsh-termux-setup   # npm 12 起必须显式执行，postinstall 默认被拦截
 dsh web
 ```
 
@@ -27,6 +28,7 @@ dsh web
 
 ```bash
 npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
+dsh-termux-setup
 dsh web
 ```
 
@@ -49,7 +51,7 @@ postinstall 从 npm registry 拉取 `@deepseek-ai/dsh`(npmjs→npmmirror 自动�
 ## 环境要求
 
 - **arm64(aarch64)** 的 Termux——本包只提供 android-arm64 二进制
-- Node.js `>= 22.19`(与 `@deepseek-ai/dsh` 要求一致)
+- Node.js `>= 24.9.0`(即 `@deepseek-ai/dsh` 自身的 engines)
 - `patch`(`pkg install patch`)——精简模式应用源码补丁时需要
 
 ## 维护者:重建预编译包

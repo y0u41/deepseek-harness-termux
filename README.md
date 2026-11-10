@@ -53,9 +53,20 @@ dsh web
 ### 方案 B — 预编译原生模块（无需编译）
 
 ```bash
+# 全量包：自包含，装完直接可用
 npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
 dsh web
+
+# 分层包（356 KB，安装时从 npm 拉 dsh）：npm 12 起必须多跑一步
+npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
+dsh-termux-setup
+dsh web
 ```
+
+> **为什么分层包需要单独一步 `dsh-termux-setup`**：从 npm 12 起，依赖包的 `postinstall`
+> 默认被 `allowScripts` 拦截，而 npm 仍然返回退出码 0。只跑 `npm i -g` 会得到一个
+> "安装成功"却没有任何 dsh 的目录（`dsh: command not found`）。`dsh-termux-setup` 是显式
+> 入口，任何 npm 版本都会执行；`dsh` 启动器发现部署缺失时也会自动补跑一次。
 
 详见 [`prebuilt/README.md`](prebuilt/README.md)。
 
@@ -90,7 +101,7 @@ kill "$(cat ~/.dsh-web.pid 2>/dev/null)"
 | 设备架构 | `aarch64` | **仅 arm64**。x86_64 未验证，且本仓库的原生产物与 NDK 布局只覆盖 aarch64 |
 | Android 版本 | **16**（SDK 36） | 未验证：Android 8–15。docs 声称 8+ 可用，本仓库未实测 |
 | Termux 版本 | `0.119.0-beta.3` | 来自 F-Droid。Google Play 版未验证（通常已废弃） |
-| Node.js | **v26.13.0**（ABI 147） | 要求 ≥ 24。未验证：Node 20 / 22 / 24 |
+| Node.js | **v26.13.0**（ABI 147） | 要求 ≥ **24.9.0**（dsh 自身 engines）。未验证：Node 20 / 22 / 24.0–24.8 |
 | npm | `12.2.2` | |
 | pnpm | `12.18.0` | 插件管理需要 |
 | clang | `21.1.8` | 编译原生模块需要 |
@@ -102,7 +113,7 @@ kill "$(cat ~/.dsh-web.pid 2>/dev/null)"
 
 **明确未验证的组合**：
 
-- Node 20 / 22 / 24（`internal/modules/*` 的形状在 24.12 附近有变化，补丁 09 的降级路径依赖 24+）
+- Node 20 / 22 / 24.0–24.8（`internal/modules/*` 的形状在 24.12 附近有变化，补丁 09 的降级路径依赖 24.9+）
 - Android 8–15、Android 17+
 - x86_64 / armeabi-v7a 设备
 - 非 Termux 的 Android 终端（如 UserLAnd、Andronix）
@@ -129,15 +140,15 @@ kill "$(cat ~/.dsh-web.pid 2>/dev/null)"
 
 | # | 局限 / 风险 | 影响 | 缓解方式 |
 |---|---|---|---|
-| 1 | **沙箱不是安全边界**（proot `enforcement: partial`） | `read-only` 策略**不生效**；沙箱内可见整个宿主文件系统；uid 与宿主相同。无法阻止模型越权读写 `~/.ssh`、`~/.dsh/.credentials.yaml` | 依赖 dsh 自身的审批（approval）机制。需真实隔离请用远程 Linux 主机或独立设备 |
+| 1 | **沙箱不是安全边界**（proot `enforcement: partial`） | 补丁 07 用 `-b /:/` 把整个宿主文件系统**以读写方式**绑进沙箱：`read-only` 策略不生效、`uid` 与宿主相同、无 namespace/seccomp，写 `/tmp` 也不受限。无法阻止模型越权读写 `~/.ssh`、`~/.dsh/.credentials.yaml` | 依赖 dsh 自身的审批（approval）机制。需真实隔离请用远程 Linux 主机或独立设备 |
 | 2 | **原生模块编译脆弱** | clang / cmake / NDK sysroot / node headers / `common.gypi` 任一环节出错即失败，且报错常不指向真正原因 | `install.sh` 做了两阶段安装（先 `--ignore-scripts`，环境就绪后再编译）；失败时按 [`troubleshooting.md` 3/4](troubleshooting.md) 排查；或用方案 B 预编译 |
-| 3 | **dsh 版本漂移** | `npm i -g @deepseek-ai/dsh` 会覆盖全部补丁与 shebang，启动崩溃立即复现；上游重构会让补丁 `patch` 拒绝应用 | 升级后**必须**重跑 `bash install.sh`；关注输出里的 `[SKIP] ... inapplicable`，出现即说明需重新生成补丁 |
+| 3 | **dsh 版本漂移** | `npm i -g @deepseek-ai/dsh` 会覆盖全部补丁与 shebang，启动崩溃立即复现；上游重构会让补丁 `patch` 拒绝应用 | 升级后**必须**重跑 `bash install.sh`。脚本现在固定安装 `0.2.2-rc.1`（可用 `DSH_VERSION` 覆盖），补丁以 `-F0` 精确匹配：一旦漂移会打印 `[FAIL]`，对 02/09/11/koffi 直接中止，不再产出「安装成功但启动即崩」的环境 |
 | 4 | **`link(2)` 被 SELinux 全线拒绝** | 会话持久化、workspace 归档的原子写入路径失效（`EACCES`/`EPERM`） | 补丁 02 回退到同盘原子 `rename(2)`（已实测可用）。**注意**：workspace 与 `DSH_HOME` 在同一文件系统内才保持原子性 |
 | 5 | **`/sdcard` 是 FUSE** | 无硬链接、无 exec 位、无软链接、大小写不敏感、`rename` 语义不同 | 把 `DSH_HOME` 与 workspace 放在内部存储（`$HOME`）。`healthcheck.sh` 第 8 节会实测并在越界时 `FAIL` |
 | 6 | **Android 12+ phantom process killer** | 后台 `node` 可能被系统回收，表现为"用着用着突然连不上" | `termux-wake-lock` + 设置里把 Termux 电池优化设为"无限制"。只能降低概率，无法关闭 |
 | 7 | **文档预览/转换不可用** | docx / xlsx / pptx / pdf 的预览与格式转换失败（`libreoffice-kit` 缺 `libreoffice`） | 无。Termux 上装 `libreoffice` 基本无解；需要此功能请走 proot Ubuntu |
 | 8 | **仅覆盖 aarch64** | x86_64 / armv7 设备无法使用本仓库的原生产物与 NDK 布局 | 无。换 proot Ubuntu（有 linux-arm64-gnu 预编译产物） |
-| 9 | **Node 主版本敏感** | Node < 24 未验证；`internal/modules/*` 形状在 24.12 附近有变化，补丁 09 的降级路径依赖 24+ | 用 `pkg install nodejs-lts` 的最新版；升级 Node 大版本后重跑 `install.sh` 重编原生模块 |
+| 9 | **Node 主版本敏感** | Node < 24.9.0 未验证（dsh 的 engines 就是 `>=24.9.0`）；`internal/modules/*` 形状在 24.12 附近有变化 | 用 `pkg install nodejs-lts` 的最新版；升级 Node 大版本后重跑 `install.sh` 重编原生模块 |
 | 10 | **安装体积大** | 完整 dsh 约 **750 MB**（含 `@img/sharp-wasm32` 的 WASM 产物）；`~/.dsh` 约 8 MB | 无法显著减小；空间不足的设备建议用方案 B 的分层变体 |
 | 11 | **认证 cookie 为 `SameSite=Strict`** | 从外部 App 跳转打开 Web UI 会得到 401 | 手动粘贴 URL 进地址栏，或打开后刷新一次。未做 `SameSite=Lax` 改动（那会削弱 CSRF 防护） |
 
@@ -157,8 +168,8 @@ kill "$(cat ~/.dsh-web.pid 2>/dev/null)"
 |---|---|
 | 命令执行（`read-only` / `workspace-write`） | ✅ exit 0 |
 | workspace 内写入并回读 | ✅ |
-| `/tmp` 重定向到 `$PREFIX/tmp` | ✅ |
-| **`read-only` 策略是否强制** | ❌ **不强制**，仍成功写入 |
+| `/tmp` 重定向到 `$PREFIX/tmp` | ⚠️ 仅 `workspace-write` 模式；且 `$PREFIX/tmp` 必须已存在（本仓库不负责创建） |
+| **`read-only` 策略是否强制** | ❌ **不强制**，仍成功写入（`-b /:/` 本身就是读写绑定） |
 | **宿主文件系统可见性** | ❌ **完全可见** |
 | **用户身份** | ❌ `uid` 与宿主相同 |
 | **namespace / seccomp** | ❌ 均无（proot 是 ptrace 用户态重定向） |
@@ -208,7 +219,7 @@ Android 12+ phantom process killer 无法关闭，只能 `termux-wake-lock` + �
 | **需要文档预览/转换** | 缺 `libreoffice` | proot Ubuntu（`apt install libreoffice`） |
 | **不想碰编译** | 方案 A 需要 clang / cmake / NDK sysroot | 方案 B 预编译包，或 proot Ubuntu |
 | **设备非 arm64** | 原生产物与 NDK 布局只覆盖 aarch64 | proot Ubuntu |
-| **Node < 24** | 未验证，`internal/modules/*` 形状不同 | 升级 Node，或 proot Ubuntu |
+| **Node < 24.9.0** | 未验证，`internal/modules/*` 形状不同 | 升级 Node，或 proot Ubuntu |
 | **给不懂技术的人用** | 需要能读终端报错 | 封装 APK |
 
 ---
@@ -221,12 +232,12 @@ Android 12+ phantom process killer 无法关闭，只能 `termux-wake-lock` + �
 | [`02-session-persistence-link-rename.patch`](patches/02-session-persistence-link-rename.patch) | `dsh-session-persistence-jsonl` | `link(2)` 被 SELinux 拒绝（`EACCES`/`EPERM`）时回退同盘原子 `rename(2)` |
 | [`03-subprocess-local-android.patch`](patches/03-subprocess-local-android.patch) | `dsh-subprocess-local` | 进程组检查（`kill(-pid, 0)`）把 `android` 视同 `linux` |
 | [`04-native-command-termux-open.patch`](patches/04-native-command-termux-open.patch) | `dsh-native-command` | Android 下用 `termux-open` 打开路径/URL；启用原生路径检测 |
-| [`05-host-directory-picker-native-android.patch`](patches/05-host-directory-picker-native-android.patch) | `dsh-host-directory-picker-native` | Android 下目录选择走 Linux（zenity）路径 |
+| [`05-host-directory-picker-native-android.patch`](patches/05-host-directory-picker-native-android.patch) | `dsh-host-directory-picker-native` | Android 下不再抛「unsupported」，而是走 zenity/kdialog 探测；两者在 Termux 上都不存在，因此**目录选择功能实际仍不可用**，只是错误信息变成可读的说明。请用 Web 端的目录浏览 |
 | [`06-workspace-archive-skip-session-known-check.patch`](patches/06-workspace-archive-skip-session-known-check.patch) | `dsh-workspace` | 归档时跳过 `sessionKnown()` 校验（全新安装下会失败） |
 | [`07-sandbox-local-proot-runner.patch`](patches/07-sandbox-local-proot-runner.patch) | `dsh-sandbox-local` | Android 平台链加入 `proot`，`enforcement: partial`；`/tmp` 重定向到 `$PREFIX/tmp` |
 | [`08-dsh-tool-fs-search-android-rg.patch`](patches/08-dsh-tool-fs-search-android-rg.patch) | `dsh-tool-fs-search` | `require.resolve()` + 系统 rg 回退；`@vscode/ripgrep` 无 android-arm64 平台包（见 [`docs/termux-ripgrep-fix.md`](docs/termux-ripgrep-fix.md)） |
 | [`09-app-boot-expose-internals.patch`](patches/09-app-boot-expose-internals.patch) | `dsh-app-boot` | `internalModules()` 先走 `--expose-internals`，再回退原生 addon |
-| [`10-inspector-worker-expose-internals.patch`](patches/10-inspector-worker-expose-internals.patch) | `dsh-experimental-inspector` | worker 的 `execArgv` 由 `[]` 改为 `["--expose-internals"]`（worker 不继承父进程 flag） |
+| [`10-inspector-worker-expose-internals.patch`](patches/10-inspector-worker-expose-internals.patch) | `dsh-experimental-inspector` | worker 的 `execArgv` 由 `[]` 改为 `["--expose-internals"]`（Node 的 Worker 本会继承父进程 `execArgv`，是上游显式写成 `[]` 才丢了 flag；该补丁只影响可选的 inspector 包，不是 `dsh web` 的启动前提） |
 | [`11-node-addon-system-flock-android.patch`](patches/11-node-addon-system-flock-android.patch) | `node-addon-system` | `flock.js` 放行 `android` 平台；配合 install.sh 5d 编译 android-arm64 `system.node`，会话写锁不再报 `ERR_FLOCK_UNSUPPORTED_PLATFORM` |
 | [`koffi-statx.patch`](patches/koffi-statx.patch) | `koffi` | 条件编译掉 bionic 中不存在的 `statx()` |
 
@@ -259,9 +270,33 @@ bash healthcheck.sh --verbose  # 附额外细节
 
 ---
 
+## 升级与卸载
+
+**升级 dsh 之后**（`npm i -g @deepseek-ai/dsh@<新版本>`）必须重跑安装脚本，否则补丁全丢：
+
+```bash
+bash install.sh              # 默认装回 pin 的 0.2.2-rc.1
+DSH_VERSION=0.2.3 bash install.sh   # 想试新版本：先确认补丁能干净应用，否则脚本会中止
+```
+
+`install.sh` 现在会：
+- 安装**固定版本**（`DSH_VERSION`，默认 `0.2.2-rc.1`），不再 `@latest`
+- 以 `-F0` 精确匹配打补丁，漂移即 `[FAIL]`；02/09/11/koffi 失败**直接中止**，不会留下"装完启动即崩"的环境
+- 最后跑一次 `dsh --version` 作为交付前最后一关
+
+**卸载**：
+
+```bash
+bash scripts/uninstall.sh --dry-run   # 先看会删什么
+bash scripts/uninstall.sh             # 删全局 dsh + 别名，保留 ~/.dsh
+bash scripts/uninstall.sh --purge     # 连 ~/.dsh（凭据、会话历史）一起删
+```
+
+---
+
 ## 路线对比
 
-Termux 原生 / proot Ubuntu / 封装 APK 三条路的详细对比（性能、体积、沙箱、维护成本、以及本仓库 11 个问题在三条路上各自的表现）见 [`docs/comparison.md`](docs/comparison.md)。
+Termux 原生 / proot Ubuntu / 封装 APK 三条路的详细对比（性能、体积、沙箱、维护成本、以及本仓库 16 个问题在三条路上各自的表现）见 [`docs/comparison.md`](docs/comparison.md)。
 
 ---
 
@@ -279,8 +314,12 @@ deepseek-harness-termux/
 │   ├── comparison.md          # 三条路线对比
 │   └── termux-ripgrep-fix.md  # ripgrep 修复细节
 ├── patches/                   # 12 个源码补丁（在各包目录内 patch -p1）
-├── prebuilt/                  # 方案 B：预编译部署包
-└── scripts/                   # 维护者脚本（构建预编译包等）
+├── prebuilt/                  # 方案 B：预编译部署包（bin/ + install.js）
+├── scripts/
+│   ├── build-prebuilt.sh      # 构建两个发布 tarball
+│   ├── fix-dsh-glob-rg.sh     # 单独修 ripgrep 解析
+│   └── uninstall.sh           # 卸载（--purge 连 ~/.dsh 一起）
+└── .github/workflows/ci.yml   # shellcheck + 补丁适用性 + 版本一致性
 ```
 
 ---

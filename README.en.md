@@ -53,9 +53,22 @@ dsh web
 ### Plan B — precompiled native modules (no compilation)
 
 ```bash
+# vendored: self-contained, nothing else to run
 npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz
 dsh web
+
+# layered (356 KB, pulls dsh from npm): npm 12 needs the extra step
+npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz
+dsh-termux-setup
+dsh web
 ```
+
+> **Why the layered variant needs `dsh-termux-setup`**: since npm 12, a
+> dependency's `postinstall` does not run unless it is allow-listed
+> (`allowScripts`) — and npm still exits 0. A bare `npm i -g` leaves an
+> "installed" package with no dsh inside (`dsh: command not found`).
+> `dsh-termux-setup` is an explicit bin that always runs; the `dsh` launcher
+> also self-bootstraps when the deployment is missing.
 
 See [`prebuilt/README.md`](prebuilt/README.md).
 
@@ -85,7 +98,7 @@ The only combination that has been **actually run end-to-end and fully self-chec
 | Architecture | `aarch64` | **arm64 only.** x86_64 unverified; the natives and NDK layout here are aarch64-only |
 | Android | **16** (SDK 36) | Unverified: Android 8–15 and 17+ |
 | Termux | `0.119.0-beta.3` | From F-Droid. Play Store build unverified (generally obsolete) |
-| Node.js | **v26.13.0** (ABI 147) | Requires ≥ 24. Unverified: Node 20 / 22 / 24 |
+| Node.js | **v26.13.0** (ABI 147) | Requires ≥ **24.9.0** (dsh’s own engines). Unverified: Node 20 / 22 / 24.0–24.8 |
 | npm | `12.2.2` | |
 | pnpm | `12.18.0` | Needed for plugin management |
 | clang | `21.1.8` | Needed to compile the natives |
@@ -97,7 +110,7 @@ The only combination that has been **actually run end-to-end and fully self-chec
 
 **Explicitly unverified:**
 
-- Node 20 / 22 / 24 (`internal/modules/*` changed shape around 24.12; patch 09's fallback assumes 24+)
+- Node 20 / 22 / 24.0–24.8 (`internal/modules/*` changed shape around 24.12; patch 09’s fallback assumes 24.9+)
 - Android 8–15, 17+
 - x86_64 / armeabi-v7a
 - Non-Termux Android terminals (UserLAnd, Andronix, …)
@@ -132,7 +145,7 @@ The only combination that has been **actually run end-to-end and fully self-chec
 | 6 | **Android 12+ phantom process killer** | Background `node` may be reaped — "it worked, then suddenly the connection dropped" | `termux-wake-lock` plus Settings → Apps → Termux → Battery → Unrestricted. Reduces the chance only; cannot be disabled |
 | 7 | **Document preview/conversion unavailable** | docx / xlsx / pptx / pdf preview and conversion fail (`libreoffice-kit` needs `libreoffice`) | None. Installing `libreoffice` on Termux is effectively impossible; use proot Ubuntu for this |
 | 8 | **aarch64 only** | x86_64 / armv7 devices cannot use these natives or the NDK layout | None. Use proot Ubuntu (has linux-arm64-gnu prebuilds) |
-| 9 | **Sensitive to the Node major version** | Node < 24 unverified; `internal/modules/*` changed shape around 24.12 and patch 09's fallback assumes 24+ | Use the latest `pkg install nodejs-lts`; rebuild the natives via `install.sh` after a Node major upgrade |
+| 9 | **Sensitive to the Node major version** | Node < 24.9.0 unverified (dsh engines is `>=24.9.0`); `internal/modules/*` changed shape around 24.12 and patch 09's fallback assumes 24+ | Use the latest `pkg install nodejs-lts`; rebuild the natives via `install.sh` after a Node major upgrade |
 | 10 | **Large install footprint** | Full dsh is ~**750 MB** (includes `@img/sharp-wasm32` WASM artifacts); `~/.dsh` ~8 MB | Cannot be meaningfully reduced; low-storage devices should use Plan B's layered variant |
 | 11 | **Auth cookie is `SameSite=Strict`** | Opening the Web UI via an external app handoff yields 401 | Paste the URL into the address bar manually, or reload once. No `SameSite=Lax` patch is shipped (that would weaken CSRF protection) |
 
@@ -201,7 +214,7 @@ Generating `diff -u` patches against `@deepseek-ai/dsh` **0.2.2-rc.1** means any
 | **Document preview/conversion** | No `libreoffice` | proot Ubuntu |
 | **No compilation at all** | Plan A needs clang / cmake / NDK sysroot | Plan B, or proot Ubuntu |
 | **Non-arm64 device** | The natives and NDK layout are aarch64-only | proot Ubuntu |
-| **Node < 24** | Unverified; `internal/modules/*` shape differs | Upgrade Node, or proot Ubuntu |
+| **Node < 24.9.0** | Unverified; `internal/modules/*` shape differs | Upgrade Node, or proot Ubuntu |
 | **Handing it to non-technical users** | It requires reading terminal errors | A packaged APK |
 
 ---
@@ -214,7 +227,7 @@ Generating `diff -u` patches against `@deepseek-ai/dsh` **0.2.2-rc.1** means any
 | [`02-session-persistence-link-rename.patch`](patches/02-session-persistence-link-rename.patch) | `dsh-session-persistence-jsonl` | Falls back to same-fs atomic `rename(2)` when `link(2)` is denied (`EACCES`/`EPERM`) |
 | [`03-subprocess-local-android.patch`](patches/03-subprocess-local-android.patch) | `dsh-subprocess-local` | Treats `android` like `linux` for the process-group check (`kill(-pid, 0)`) |
 | [`04-native-command-termux-open.patch`](patches/04-native-command-termux-open.patch) | `dsh-native-command` | Uses `termux-open` for paths/URLs on Android; enables native path detection |
-| [`05-host-directory-picker-native-android.patch`](patches/05-host-directory-picker-native-android.patch) | `dsh-host-directory-picker-native` | Routes directory picking through the Linux (zenity) path |
+| [`05-host-directory-picker-native-android.patch`](patches/05-host-directory-picker-native-android.patch) | `dsh-host-directory-picker-native` | No longer throws “unsupported” on Android, it probes zenity/kdialog — neither exists on Termux, so **directory picking still does not work**; only the error message becomes accurate. Use the in-app browse picker |
 | [`06-workspace-archive-skip-session-known-check.patch`](patches/06-workspace-archive-skip-session-known-check.patch) | `dsh-workspace` | Skips `sessionKnown()` when archiving (fails on fresh installs) |
 | [`07-sandbox-local-proot-runner.patch`](patches/07-sandbox-local-proot-runner.patch) | `dsh-sandbox-local` | Adds `proot` to the Android chain with `enforcement: partial`; redirects `/tmp` to `$PREFIX/tmp` |
 | [`08-dsh-tool-fs-search-android-rg.patch`](patches/08-dsh-tool-fs-search-android-rg.patch) | `dsh-tool-fs-search` | `require.resolve()` + system-rg fallback; `@vscode/ripgrep` has no android-arm64 package (see [`docs/termux-ripgrep-fix.md`](docs/termux-ripgrep-fix.md)) |

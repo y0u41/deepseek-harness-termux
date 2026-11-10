@@ -1,6 +1,6 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -2,11 +2,21 @@
+@@ -2,11 +2,25 @@
  import { ENCODING_PREAMBLE, resolvePwshPath } from "@deepseek-ai/dsh-pwsh-local";
  import z from "@deepseek-ai/schemastery";
  import { Buffer } from "node:buffer";
@@ -13,9 +13,13 @@
 +/** Resolve a bash binary that actually exists on this host (Termux/Android has no /bin/bash). */
 +function defaultBashShell() {
 +	if (process.platform === "android") {
-+		if (existsSync("/data/data/com.termux/files/usr/bin/bash")) return "/data/data/com.termux/files/usr/bin/bash";
-+		if (existsSync("/system/bin/sh")) return "/system/bin/sh";
-+		return "/bin/sh";
++		const prefix = process.env.PREFIX || "/data/data/com.termux/files/usr";
++		const termuxBash = `${prefix}/bin/bash`;
++		if (existsSync(termuxBash)) return termuxBash;
++		if (existsSync("/bin/bash")) return "/bin/bash";
++		/* /system/bin/sh is mksh and rejects --noprofile/--norc: prefer a clear
++		   ENOENT on the termux bash path over a confusing mksh argument error. */
++		return termuxBash;
 +	}
 +	return "/bin/bash";
 +}

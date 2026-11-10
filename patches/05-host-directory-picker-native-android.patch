@@ -1,11 +1,20 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -241,7 +241,7 @@
- 		throw error;
- 	}
+@@ -282,7 +282,7 @@
+ 		DIALOG_TITLE
+ 	], signal, "hidden")).stdout);
  	if (platform === "win32") return await (internals.pickWin32Dialog ?? pickWin32Directory)(signal);
 -	if (platform === "linux") {
 +	if (platform === "linux" || platform === "android") {
  		try {
  			return outputPath((await run("zenity", [
  				"--file-selection",
+@@ -304,7 +304,7 @@
+ 		} catch (error) {
+ 			rethrowIfAborted(signal, error);
+ 			if (errorCode(error) === 1) return null;
+-			if (isMissingCommand(error)) throw new Error("no supported native directory picker found (install zenity or kdialog)");
++			if (isMissingCommand(error)) throw new Error(`no native directory picker available on ${platform} (zenity/kdialog are X11-only and absent on Termux) — use the in-app browse picker instead`);
+ 			throw error;
+ 		}
+ 	}

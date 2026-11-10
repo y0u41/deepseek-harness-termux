@@ -6,10 +6,12 @@
 #   bash healthcheck.sh --quiet    # exit code only (0 = no failures)
 #   bash healthcheck.sh --verbose  # include extra detail per check
 #
-# Exit codes: 0 = no FAIL, 1 = at least one FAIL.
+# Exit codes: 0 = no FAIL, 1 = at least one FAIL, 2 = not a Termux/dsh host.
 # WARN never fails the run — warnings are the documented limits, not breakage.
 #
-# Everything here is read-only: no installs, no writes outside $TMPDIR.
+# Installs nothing and never edits your files. It does create short-lived probe
+# files (a temp dir under $TMPDIR, plus one empty file per filesystem probe) and
+# removes them on exit, including on Ctrl-C.
 
 set -uo pipefail
 
@@ -20,7 +22,7 @@ for arg in "$@"; do
         --quiet)   QUIET=1 ;;
         --verbose) VERBOSE=1 ;;
         -h|--help)
-            sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
     esac
@@ -37,15 +39,27 @@ DEFAULT_PORT="${DSH_PORT:-3080}"
 
 PASS=0; WARN=0; FAIL=0
 
+# Colour only on a TTY, and honour NO_COLOR (https://no-color.org/).
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_BAD=$'\033[31m'; C_SEC=$'\033[1m'; C_OFF=$'\033[0m'
+else
+    C_OK=""; C_WARN=""; C_BAD=""; C_SEC=""; C_OFF=""
+fi
+
+# Probe scratch space: one temp dir, removed on any exit path.
+PROBE_DIR="$(mktemp -d "${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}/dsh-healthcheck.XXXXXX" 2>/dev/null || true)"
+cleanup() { [ -n "${PROBE_DIR:-}" ] && rm -rf "$PROBE_DIR" 2>/dev/null || true; }
+trap cleanup EXIT INT TERM
+
 # --quiet must emit nothing at all (only the exit code matters), so redirect
 # stdout to /dev/null here; ok/warn/bad already skip their own printing.
 [ "$QUIET" = 1 ] && exec 1>/dev/null
 
-ok()   { PASS=$((PASS+1)); [ "$QUIET" = 1 ] || printf '  \033[32m[ OK ]\033[0m %s\n' "$1"; }
-warn() { WARN=$((WARN+1)); [ "$QUIET" = 1 ] || printf '  \033[33m[WARN]\033[0m %s\n' "$1"; }
-bad()  { FAIL=$((FAIL+1)); [ "$QUIET" = 1 ] || printf '  \033[31m[FAIL]\033[0m %s\n' "$1"; }
+ok()   { PASS=$((PASS+1)); [ "$QUIET" = 1 ] || printf '  %s[ OK ]%s %s\n' "$C_OK" "$C_OFF" "$1"; }
+warn() { WARN=$((WARN+1)); [ "$QUIET" = 1 ] || printf '  %s[WARN]%s %s\n' "$C_WARN" "$C_OFF" "$1"; }
+bad()  { FAIL=$((FAIL+1)); [ "$QUIET" = 1 ] || printf '  %s[FAIL]%s %s\n' "$C_BAD" "$C_OFF" "$1"; }
 info() { [ "$QUIET" = 1 ] && return; [ "$VERBOSE" = 1 ] && printf '         %s\n' "$1"; }
-sec()  { [ "$QUIET" = 1 ] || printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
+sec()  { [ "$QUIET" = 1 ] || printf '\n%s== %s ==%s\n' "$C_SEC" "$1" "$C_OFF"; }
 
 # ── 1. Platform and toolchain ───────────────────────────────────────────────
 sec "1. Platform / toolchain"
@@ -66,10 +80,11 @@ fi
 if command -v node >/dev/null 2>&1; then
     NODE_V="$(node -v 2>/dev/null)"
     NODE_MAJOR="$(printf '%s' "${NODE_V#v}" | cut -d. -f1)"
-    if [ "${NODE_MAJOR:-0}" -ge 24 ] 2>/dev/null; then
+    NODE_MINOR="$(printf '%s' "${NODE_V#v}" | cut -d. -f2)"
+    if [ "${NODE_MAJOR:-0}" -gt 24 ] 2>/dev/null || { [ "${NODE_MAJOR:-0}" -eq 24 ] && [ "${NODE_MINOR:-0}" -ge 9 ]; } 2>/dev/null; then
         ok "Node $NODE_V (ABI $(node -p 'process.versions.modules' 2>/dev/null), $(node -p 'process.arch' 2>/dev/null))"
     else
-        warn "Node $NODE_V is older than the validated 24+ line"
+        bad "Node $NODE_V is below dsh's requirement (>=24.9.0) — pkg install nodejs-lts"
     fi
 else
     bad "node not found"
@@ -77,11 +92,28 @@ fi
 
 if [ -d "$DSH_DIR" ]; then
     ok "dsh $(node -p "require('$DSH_DIR/package.json').version" 2>/dev/null) at $DSH_DIR"
+    # The npm bin link: without it `dsh` is simply not a command, which every
+    # other check would happily ignore.
+    if [ -x "${PREFIX:-/data/data/com.termux/files/usr}/bin/dsh" ]; then
+        ok "dsh on PATH via $PREFIX/bin/dsh"
+    else
+        bad "$PREFIX/bin/dsh is missing — re-run: bash install.sh"
+    fi
 else
     bad "dsh not installed (npm root -g = ${DSH_ROOT:-<empty>})"
-    echo ""
-    echo "  Cannot continue without dsh. Run: bash install.sh"
-    exit 1
+    if [ -d "${DSH_ROOT:-/nonexistent}/dsh-termux" ] || [ -d "$HOME/.npm-global/lib/node_modules/dsh-termux" ]; then
+        echo ""
+        echo "  dsh-termux IS installed but the deployment never ran."
+        echo "  From npm 12 on, postinstall is blocked by default (allowScripts) and"
+        echo "  npm still exits 0. Finish the install explicitly:"
+        echo ""
+        echo "      dsh-termux-setup"
+        echo ""
+    else
+        echo ""
+        echo "  Cannot continue without dsh. Run: bash install.sh"
+    fi
+    exit 2
 fi
 
 if command -v pnpm >/dev/null 2>&1; then
@@ -141,6 +173,14 @@ else
     ok "node-addon-require-builtin unavailable (expected; --expose-internals fallback in use)"
 fi
 
+# End-to-end: the only check that proves the whole chain still works. Patches
+# can be "applied" per patch(1) while the process still fails to boot.
+if ( cd "$DSH_DIR" && node --expose-internals ./lib/bin.js --version >/dev/null 2>&1 ); then
+    ok "dsh starts (--version)"
+else
+    bad "dsh does not start (--version failed) — see troubleshooting.md > problem 1"
+fi
+
 # ── 3. Native modules ───────────────────────────────────────────────────────
 sec "3. Native modules"
 
@@ -153,10 +193,10 @@ for mod in node-pty koffi; do
 done
 
 # flock (session write lease) — android-arm64 N-API addon via the shim package
-if ( cd "$DSH_DIR" && node --input-type=module -e '
+if ( cd "$DSH_DIR" && DSH_PROBE_FILE="${PROBE_DIR:-$TMPDIR}/flock-probe" node --input-type=module -e '
 import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock";
 import { openSync } from "node:fs";
-const fd = openSync(process.env.HOME + "/.dsh-flock-healthcheck", "w");
+const fd = openSync(process.env.DSH_PROBE_FILE, "w");
 await tryLockExclusive(fd);
 console.log("FLOCK_OK");
 ' 2>/dev/null | grep -q FLOCK_OK ); then
@@ -423,8 +463,8 @@ fi
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 if [ "$QUIET" = 0 ]; then
-    printf '\n\033[1m== Summary ==\033[0m\n'
-    printf '  \033[32m%d passed\033[0m   \033[33m%d warnings\033[0m   \033[31m%d failures\033[0m\n' "$PASS" "$WARN" "$FAIL"
+    printf '\n%s== Summary ==%s\n' "$C_SEC" "$C_OFF"
+    printf '  %s%d passed%s   %s%d warnings%s   %s%d failures%s\n' "$C_OK" "$PASS" "$C_OFF" "$C_WARN" "$WARN" "$C_OFF" "$C_BAD" "$FAIL" "$C_OFF"
     [ "$FAIL" -eq 0 ] && printf '  No failures. Warnings are documented limits, not breakage.\n'
 fi
 

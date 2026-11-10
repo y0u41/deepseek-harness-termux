@@ -1,11 +1,12 @@
 {
   "name": "dsh-termux",
-  "version": "0.2.2-termux.1",
-  "description": "Precompiled Termux deployment of @deepseek-ai/dsh (Plan B) — installs the patched dsh with prebuilt native modules (node-pty, koffi) for android-arm64. No compilation, NDK, or cmake required.",
+  "version": "0.2.2-termux.2",
+  "description": "Precompiled Termux deployment of @deepseek-ai/dsh (Plan B) — installs the patched dsh with prebuilt native modules (node-pty, koffi, flock) for android-arm64. No compilation, NDK, or cmake required.",
   "license": "MIT",
   "type": "commonjs",
   "bin": {
-    "dsh-termux": "bin/dsh"
+    "dsh-termux": "bin/dsh",
+    "dsh-termux-setup": "bin/setup.js"
   },
   "scripts": {
     "postinstall": "node install.js"
@@ -19,7 +20,28 @@
     "README.zh-CN.md"
   ],
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.9.0"
   },
+  "os": [
+    "android"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/y0u41/deepseek-harness-termux.git"
+  },
+  "homepage": "https://github.com/y0u41/deepseek-harness-termux#readme",
+  "bugs": {
+    "url": "https://github.com/y0u41/deepseek-harness-termux/issues"
+  },
+  "keywords": [
+    "termux",
+    "android",
+    "arm64",
+    "dsh",
+    "deepseek-harness"
+  ],
   "dependencies": {}
 }

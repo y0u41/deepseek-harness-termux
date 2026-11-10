@@ -1,17 +1,23 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -2562,13 +2562,21 @@
+@@ -2562,13 +2562,27 @@
  		return found;
  	}
  };
 +function requireInternal(id) {
 +	const require = createRequire(import.meta.url);
++	const failures = [];
 +	if (process.execArgv.includes("--expose-internals")) try {
 +		return require(id);
-+	} catch {}
++	} catch (error) {
++		failures.push(error);
++	}
 +	try {
 +		return require("node-addon-require-builtin").requireBuiltin(id);
-+	} catch {}
++	} catch (error) {
++		failures.push(error);
++	}
++	throw new Error(`dsh: cannot reach ${id} — run with --expose-internals (Termux patch 09); tried: ${failures.map((error) => error?.message ?? String(error)).join(" | ")}`, { cause: failures[0] });
 +}
  function internalModules() {
 -	const addon = createRequire(import.meta.url)("node-addon-require-builtin");
@@ -30,18 +36,24 @@
  	/* v8 ignore start -- the supported Node 24/26 matrix validates each available Internal interface */
 --- a/lib/worker/profile-resolution-bootstrap.js
 +++ b/lib/worker/profile-resolution-bootstrap.js
-@@ -560,13 +560,21 @@
+@@ -560,13 +560,27 @@
  		return found;
  	}
  };
 +function requireInternal(id) {
 +	const require = createRequire(import.meta.url);
++	const failures = [];
 +	if (process.execArgv.includes("--expose-internals")) try {
 +		return require(id);
-+	} catch {}
++	} catch (error) {
++		failures.push(error);
++	}
 +	try {
 +		return require("node-addon-require-builtin").requireBuiltin(id);
-+	} catch {}
++	} catch (error) {
++		failures.push(error);
++	}
++	throw new Error(`dsh: cannot reach ${id} — run with --expose-internals (Termux patch 09); tried: ${failures.map((error) => error?.message ?? String(error)).join(" | ")}`, { cause: failures[0] });
 +}
  function internalModules() {
 -	const addon = createRequire(import.meta.url)("node-addon-require-builtin");

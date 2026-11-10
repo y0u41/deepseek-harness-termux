@@ -26,6 +26,42 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PKG_DIR="$REPO_DIR/prebuilt"
 MODES="${MODES:-layered full}"
+# Release version for BOTH tarballs. One product, one version — the previous
+# build stamped the layered package 0.2.2-termux.1 but the vendored one
+# 0.2.2-rc.1-termux.1, so two artifacts of the same release disagreed.
+REL_VERSION="${REL_VERSION:-$(node -p "require('$PKG_DIR/package.json').version")}"
+# Must be exported: the vendored package.json rewrite below happens in a node
+# child process. Un-exported, j.version became undefined and JSON.stringify()
+# silently dropped the field, producing a tarball npm refuses to install.
+export REL_VERSION
+
+# The natives and the NDK layout are arm64/Android only: building anywhere else
+# would produce an artifact labelled android-arm64 that cannot load.
+if [ "$(uname -m 2>/dev/null)" != "aarch64" ]; then
+    echo "[ERROR] build-prebuilt.sh must run on aarch64 (found $(uname -m 2>/dev/null))"
+    exit 1
+fi
+if [ "$(node -p 'process.platform')" != "android" ]; then
+    echo "[ERROR] build-prebuilt.sh must run on Termux/Android (found $(node -p 'process.platform'))"
+    exit 1
+fi
+
+# Always clean the staging trees, including on Ctrl-C.
+_STAGES=""
+cleanup_stages() {
+    for d in $_STAGES; do [ -n "$d" ] && rm -rf "$d"; done
+}
+trap cleanup_stages EXIT INT TERM
+# Android's linker namespace only permits /data, /system, /apex... — anything
+# staged under /tmp cannot dlopen a .node file, so the native verification below
+# would fail with "is not accessible for the namespace" on a perfectly good
+# build. Stage under $HOME (always on /data) and never trust TMPDIR here.
+STAGE_ROOT="${HOME:?}/.dsh-build-stage"
+mkdir -p "$STAGE_ROOT"
+new_stage() {
+    STAGE="$(mktemp -d "$STAGE_ROOT/build.XXXXXX")"
+    _STAGES="$_STAGES $STAGE"
+}
 
 # ── 1. Locate a working patched install ─────────────────────────────────────
 if [ -z "${DSH_DIR:-}" ]; then
@@ -67,7 +103,7 @@ fi
 # ── 3a. Layered tarball (small; dsh fetched from the registry at install) ───
 build_layered() {
     echo "==> Building layered tarball (dsh-termux.tgz)..."
-    STAGE="$(mktemp -d)"
+    new_stage
     mkdir -p "$STAGE/package/bin" \
              "$STAGE/package/patches" \
              "$STAGE/package/prebuilt/android-arm64"
@@ -77,7 +113,8 @@ build_layered() {
     cp "$PKG_DIR/README.md"     "$STAGE/package/"
     cp "$PKG_DIR/README.zh-CN.md" "$STAGE/package/"
     cp "$PKG_DIR/bin/dsh"       "$STAGE/package/bin/dsh"
-    chmod +x "$STAGE/package/bin/dsh"
+    cp "$PKG_DIR/bin/setup.js"  "$STAGE/package/bin/setup.js"
+    chmod +x "$STAGE/package/bin/dsh" "$STAGE/package/bin/setup.js"
     cp "$REPO_DIR"/patches/*.patch "$STAGE/package/patches/"
     cp "$PTY"  "$STAGE/package/prebuilt/android-arm64/pty.node"
     cp "$KOFFI" "$STAGE/package/prebuilt/android-arm64/koffi.node"
@@ -92,7 +129,7 @@ build_layered() {
 # ── 3b. Vendored tarball (full offline; whole patched dsh + node_modules) ───
 build_full() {
     echo "==> Building vendored tarball (dsh-termux-full.tgz)..."
-    STAGE="$(mktemp -d)"
+    new_stage
     FULL_PKG="$STAGE/package"
     mkdir -p "$FULL_PKG"
 
@@ -119,9 +156,10 @@ build_full() {
         if [ -d "$DSH_DIR/node_modules/@img/sharp-wasm32" ]; then
             mkdir -p "$FULL_PKG/node_modules/@img"
             cp -a "$DSH_DIR/node_modules/@img/sharp-wasm32" "$FULL_PKG/node_modules/@img/"
-        elif [ -d "$(dirname "$DSH_DIR")/@img/sharp-wasm32" ]; then
+        elif [ -d "$(dirname "$(dirname "$DSH_DIR")")/@img/sharp-wasm32" ]; then
+            # dshDir = <globalRoot>/@deepseek-ai/dsh, so @img lives at <globalRoot>/@img
             mkdir -p "$FULL_PKG/node_modules/@img"
-            cp -a "$(dirname "$DSH_DIR")/@img/sharp-wasm32" "$FULL_PKG/node_modules/@img/"
+            cp -a "$(dirname "$(dirname "$DSH_DIR")")/@img/sharp-wasm32" "$FULL_PKG/node_modules/@img/"
         else
             echo "    -> fetching @img/sharp-wasm32 into the vendored tree..."
             (cd "$FULL_PKG" && env -u npm_config_prefix -u npm_config_global \
@@ -130,11 +168,14 @@ build_full() {
     fi
 
     # verify the vendored tree is self-sufficient
+    export PROBE_FILE="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}/dsh-vendored-flock-$$"
     if ! (cd "$FULL_PKG" && node -e "require('sharp'); require('node-pty'); require('koffi'); console.log('    vendored natives OK')") \
-        || ! (cd "$FULL_PKG" && node --input-type=module -e 'import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock"; import { openSync } from "node:fs"; const fd = openSync(process.env.HOME + "/.dsh-flock-smoke", "w"); await tryLockExclusive(fd); console.log("    vendored flock OK")'); then
+        || ! (cd "$FULL_PKG" && node --input-type=module -e 'import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock"; import { openSync } from "node:fs"; const fd = openSync(process.env.PROBE_FILE, "w"); await tryLockExclusive(fd); console.log("    vendored flock OK")'); then
         echo "[ERROR] vendored tree fails to load — aborting full build"
+        rm -f "$PROBE_FILE"
         return 1
     fi
+    rm -f "$PROBE_FILE"
 
     # rename + version suffix + bin + bundledDependencies (npm keeps the
     # bundled node_modules without re-fetching — same as the reference package)
@@ -143,7 +184,8 @@ build_full() {
         const p = '$FULL_PKG/package.json';
         const j = JSON.parse(fs.readFileSync(p, 'utf8'));
         j.name = 'dsh-termux';
-        j.version = j.version + '-termux.1';
+        if (!process.env.REL_VERSION) throw new Error('REL_VERSION is not exported');
+        j.version = process.env.REL_VERSION;
         j.bin = { dsh: 'lib/bin.js', 'dsh-termux': 'lib/bin.js' };
         j.bundleDependencies = Object.keys(j.dependencies || {});
         j.description = (j.description || '') + ' (vendored Termux build)';
@@ -170,11 +212,11 @@ for mode in $MODES; do
     case "$mode" in
         layered) build_layered ;;
         full)    build_full ;;
-        *) echo "[WARN] unknown mode: $mode (layered|full)" ;;
+        *) echo "[ERROR] unknown mode: $mode (expected: layered, full)" >&2; exit 2 ;;
     esac
 done
 
 echo ""
 echo "==> Done. Upload both to a GitHub release, then users install:"
-echo "    npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz"
+echo "    npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux.tgz && dsh-termux-setup"
 echo "    npm i -g https://github.com/y0u41/deepseek-harness-termux/releases/latest/download/dsh-termux-full.tgz"

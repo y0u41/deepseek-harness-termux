@@ -22,3 +22,26 @@
          return true;
      if (platform !== 'linux')
          return false;
+
++++ b/lib/index.js
+@@ -189,6 +189,12 @@
+ 		await run("xdg-open", [path], signal, "hidden");
+ 		return;
+ 	}
++	if (platform === "android") {
++		// Termux: termux-open resolves the Android VIEW intent for the default
++		// application and silently no-ops when nothing can handle it.
++		await run("termux-open", [path], signal, "hidden");
++		return;
++	}
+ 	throw new Error(`native path opener is unsupported on ${platform}`);
+ }
+ /**
+@@ -205,6 +211,7 @@
+ function canOpenNativePath(internals = {}) {
+ 	const platform = internals.platform ?? process.platform;
+ 	if (platform === "darwin" || platform === "win32") return true;
++	if (platform === "android") return true;
+ 	if (platform !== "linux") return false;
+ 	const env = internals.env ?? process.env;
+ 	return isWsl(internals) || present(env.DISPLAY) || present(env.WAYLAND_DISPLAY);
