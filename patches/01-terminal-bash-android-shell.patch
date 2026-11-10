@@ -1,14 +1,17 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -1,13 +1,23 @@
- import { TerminalBackendCleanupError, TerminalError } from "@deepseek-ai/dsh-terminal";
- import { effectiveSandboxMode } from "@deepseek-ai/dsh-sandbox-policy";
+@@ -2,11 +2,21 @@
+ import { ENCODING_PREAMBLE, resolvePwshPath } from "@deepseek-ai/dsh-pwsh-local";
  import z from "@deepseek-ai/schemastery";
-+import { existsSync } from "node:fs";
  import { Buffer } from "node:buffer";
++import { existsSync } from "node:fs";
+ import { createLazyRequire } from "@deepseek-ai/dsh-lazy-require";
  //#region lib/types/config.js
-+/** Resolve a shell binary that actually exists on this host (Termux/Android has no /bin/bash). */
-+function defaultShellPath() {
+ /** Validated configuration for the local PTY backend. */
+ /** Bash dialect default executable. */
+-const DEFAULT_BASH_SHELL = "/bin/bash";
++/** Resolve a bash binary that actually exists on this host (Termux/Android has no /bin/bash). */
++function defaultBashShell() {
 +	if (process.platform === "android") {
 +		if (existsSync("/data/data/com.termux/files/usr/bin/bash")) return "/data/data/com.termux/files/usr/bin/bash";
 +		if (existsSync("/system/bin/sh")) return "/system/bin/sh";
@@ -16,12 +19,7 @@
 +	}
 +	return "/bin/bash";
 +}
- /** Validated configuration for the local PTY backend. */
- /** Schemastery config exposed by the plugin. */
- const Config = z.object({
- 	backendType: z.string().default("shell"),
--	shellPath: z.string().default("/bin/bash"),
-+	shellPath: z.string().default(defaultShellPath()),
- 	shellArgs: z.array(z.string()).default([
- 		"--noprofile",
- 		"--norc",
++const DEFAULT_BASH_SHELL = defaultBashShell();
+ /** Bash dialect default arguments (interactive, profile-free). */
+ const DEFAULT_BASH_ARGS = [
+ 	"--noprofile",

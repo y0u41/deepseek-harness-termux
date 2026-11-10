@@ -1,14 +1,15 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -1,6 +1,6 @@
+@@ -1,7 +1,7 @@
  import z from "@deepseek-ai/schemastery";
+ import { SessionFormatUnsupportedMigrationError, createSessionFormatCatalogWithChildren, historicalSessionFormatCatalog, sessionFormatCatalog } from "@deepseek-ai/dsh-session-format-catalog";
  import { readdirSync } from "node:fs";
--import { link, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, truncate } from "node:fs/promises";
-+import { link, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, rename, stat, truncate } from "node:fs/promises";
- import { dirname, join, parse, resolve, toNamespacedPath } from "node:path";
+-import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, truncate } from "node:fs/promises";
++import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, rename, stat, truncate } from "node:fs/promises";
+ import { basename, dirname, isAbsolute, join, parse, resolve, toNamespacedPath } from "node:path";
  import { performance } from "node:perf_hooks";
  import { scheduler } from "node:timers/promises";
-@@ -1127,6 +1127,10 @@
+@@ -3233,6 +3233,10 @@
  		try {
  			await link(tmp, finalPath);
  			linked = true;

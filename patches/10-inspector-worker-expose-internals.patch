@@ -1,0 +1,11 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1908,7 +1908,7 @@
+ 	const options = {
+ 		workerData: boot,
+ 		transferList: [boot.hostSourcePort],
+-		execArgv: []
++		execArgv: ["--expose-internals"]
+ 	};
+ 	if (!import.meta.url.endsWith(".ts")) return new Worker(new URL("./worker.js", import.meta.url), options);
+ 	const workerEntry = new URL("../../worker/entry.ts", import.meta.url);

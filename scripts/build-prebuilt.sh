@@ -40,6 +40,7 @@ echo "==> Using patched install at: $DSH_DIR"
 
 PTY="$DSH_DIR/node_modules/node-pty/build/Release/pty.node"
 KOFFI="$DSH_DIR/node_modules/koffi/build/koffi/android_arm64/koffi.node"
+FLOCK_NODE="$DSH_DIR/node_modules/@deepseek-ai/node-addon-system-android-arm64/bin/system.node"
 if [ ! -f "$PTY" ]; then
     echo "[ERROR] missing $PTY — run install.sh first"
     exit 1
@@ -48,8 +49,13 @@ if [ ! -f "$KOFFI" ]; then
     echo "[ERROR] missing $KOFFI — run install.sh first"
     exit 1
 fi
-echo "    pty.node : $PTY"
-echo "    koffi    : $KOFFI"
+if [ ! -f "$FLOCK_NODE" ]; then
+    echo "[ERROR] missing $FLOCK_NODE — run install.sh first"
+    exit 1
+fi
+echo "    pty.node  : $PTY"
+echo "    koffi     : $KOFFI"
+echo "    flock .so : $FLOCK_NODE"
 
 # ── 2. Sanity-check the natives load in this node ───────────────────────────
 echo "==> Verifying natives load..."
@@ -75,6 +81,7 @@ build_layered() {
     cp "$REPO_DIR"/patches/*.patch "$STAGE/package/patches/"
     cp "$PTY"  "$STAGE/package/prebuilt/android-arm64/pty.node"
     cp "$KOFFI" "$STAGE/package/prebuilt/android-arm64/koffi.node"
+    cp "$FLOCK_NODE" "$STAGE/package/prebuilt/android-arm64/system.node"
 
     OUT="$REPO_DIR/dsh-termux.tgz"
     tar -czf "$OUT" -C "$STAGE" package
@@ -123,7 +130,8 @@ build_full() {
     fi
 
     # verify the vendored tree is self-sufficient
-    if ! (cd "$FULL_PKG" && node -e "require('sharp'); require('node-pty'); require('koffi'); console.log('    vendored natives OK')"); then
+    if ! (cd "$FULL_PKG" && node -e "require('sharp'); require('node-pty'); require('koffi'); console.log('    vendored natives OK')") \
+        || ! (cd "$FULL_PKG" && node --input-type=module -e 'import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock"; import { openSync } from "node:fs"; const fd = openSync(process.env.HOME + "/.dsh-flock-smoke", "w"); await tryLockExclusive(fd); console.log("    vendored flock OK")'); then
         echo "[ERROR] vendored tree fails to load — aborting full build"
         return 1
     fi

@@ -1,9 +1,10 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -423,6 +423,12 @@
+@@ -526,7 +526,13 @@
+ 	archiveSession(sessionId, options = {}) {
  		return this.enqueueOperation(async () => {
  			if (this.requireState().archivedSessionIds.includes(sessionId)) return;
--			if (!await this.sessionKnown(sessionId)) throw new WorkspaceUnknownSessionError(sessionId);
+-			if (!await this.sessionKnown(sessionId)) throw new WorkspaceUnknownSessionError(sessionId, "archive");
 +			// Termux: skip the sessionKnown() existence check. Sessions visible
 +			// in the UI may be absent from persistence (empty session dirs after
 +			// an unclean shutdown, or live sessions that were never persisted).
@@ -11,6 +12,6 @@
 +			// require the session to exist in storage. Without this, the
 +			// "Archive" button silently fails (session-not-found) and the
 +			// frontend only console.warn's, so the user sees no feedback.
- 			const state = this.requireState();
- 			await this.setState({
- 				...state,
+ 			if (options.stopActivity !== true) {
+ 				const activity = await this.ctx.waterfall("workspace/session-activity", { sessionId }, () => Promise.resolve([]));
+ 				if (activity.length > 0) throw new WorkspaceActiveSessionError(sessionId, activity);

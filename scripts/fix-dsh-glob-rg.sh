@@ -9,16 +9,25 @@
 #
 # Part 1: shim package @vscode/ripgrep-android-arm64 whose bin/rg symlinks the
 #   working system ripgrep (needed by fresh processes / after restart).
-# Part 2: patch resolveRgPath() in @deepseek-ai/dsh-tool-fs-search to resolve
-#   via require.resolve() (pure filesystem resolution, no module evaluation)
-#   with a system-rg fallback — this also bypasses Node's cached-errored
-#   @vscode/ripgrep ESM module in the live server process.
+# Part 2: apply patches/08-dsh-tool-fs-search-android-rg.patch so
+#   resolveRgPath() resolves via require.resolve() (pure filesystem
+#   resolution, no module evaluation) with a system-rg fallback — this also
+#   bypasses Node's cached-errored @vscode/ripgrep ESM module in the live
+#   server process.
 # Then hot-reload the plugin: dev_reload_package "dsh-tool-fs-search".
 #
 # Idempotent. Run it after `npm update -g @deepseek-ai/dsh` if glob/grep break.
 set -euo pipefail
 
-DSH_ROOT="${DSH_ROOT:-/data/data/com.termux/files/home/.npm-global/lib/node_modules/@deepseek-ai/dsh}"
+# Prefer the actual npm global root so this works with the standard Termux
+# `npm root -g` location as well as a custom prefix.
+if [ -z "${DSH_ROOT:-}" ]; then
+  if _g="$(npm root -g 2>/dev/null)" && [ -n "$_g" ]; then
+    DSH_ROOT="$_g/@deepseek-ai/dsh"
+  else
+    DSH_ROOT="/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh"
+  fi
+fi
 RG_SYSTEM="${RG_SYSTEM:-/data/data/com.termux/files/usr/bin/rg}"
 
 [ -x "$RG_SYSTEM" ] || { echo "system rg not found at $RG_SYSTEM" >&2; exit 1; }
@@ -40,52 +49,18 @@ EOF
 ln -sf "$RG_SYSTEM" "$SHIM/bin/rg"
 echo "[1/2] shim ok: $SHIM/bin/rg -> $RG_SYSTEM"
 
-# ---- Part 2: patch resolveRgPath() (exact-string, idempotent) -----------------
-PLUGIN="$DSH_ROOT/node_modules/@deepseek-ai/dsh-tool-fs-search/lib/index.js"
-[ -f "$PLUGIN" ] || { echo "plugin not found: $PLUGIN" >&2; exit 1; }
+# ---- Part 2: apply the rg patch (context generated for the current dsh) -----
+PLUGIN_DIR="$DSH_ROOT/node_modules/@deepseek-ai/dsh-tool-fs-search"
+[ -d "$PLUGIN_DIR" ] || { echo "plugin not found: $PLUGIN_DIR" >&2; exit 1; }
+PATCH="$(cd "$(dirname "$0")" && pwd)/../patches/08-dsh-tool-fs-search-android-rg.patch"
+[ -f "$PATCH" ] || { echo "patch file not found: $PATCH" >&2; exit 1; }
+if (cd "$PLUGIN_DIR" && patch -p1 --dry-run --forward < "$PATCH" > /dev/null 2>&1); then
+  (cd "$PLUGIN_DIR" && patch -p1 --forward < "$PATCH")
+  echo "[2/2] plugin patched"
+else
+  echo "[2/2] plugin already patched or patch inapplicable (dsh version changed?)"
+fi
 
-node - "$PLUGIN" <<'NODE'
-const fs = require("fs");
-const p = process.argv[2];
-let s = fs.readFileSync(p, "utf8");
-if (s.includes('createRequire(import.meta.url)')) {
-  console.log("[2/2] plugin already patched (resolveRgPath uses require.resolve)");
-  process.exit(0);
-}
-const oldImport = 'import { MAX_TIMER_DELAY_MS } from "@deepseek-ai/dsh-timeout";';
-const oldFn = `function resolveRgPath() {
-\trgPathPromise ??= import("@vscode/ripgrep").then((module) => module.rgPath);
-\treturn rgPathPromise;
-}`;
-if (!s.includes(oldImport)) { console.error("unexpected import block; aborting"); process.exit(2); }
-if (!s.includes(oldFn)) { console.error("unexpected resolveRgPath source; aborting"); process.exit(2); }
-const newFn = `function resolveRgPath() {
-\trgPathPromise ??= Promise.resolve().then(() => {
-\t\t// Termux compatibility (android-arm64): @vscode/ripgrep ships no
-\t\t// platform package; resolve via require.resolve (no module evaluation)
-\t\t// with a system-rg fallback.
-\t\tconst require = createRequire(import.meta.url);
-\t\tconst binaryName = process.platform === "win32" ? "rg.exe" : "rg";
-\t\ttry {
-\t\t\treturn require.resolve(\`@vscode/ripgrep-\${process.platform}-\${process.arch}/bin/\${binaryName}\`);
-\t\t} catch {
-\t\t\tconst candidates = process.env.RIPGREP_BIN
-\t\t\t\t? [process.env.RIPGREP_BIN]
-\t\t\t\t: ["/data/data/com.termux/files/usr/bin/rg", "/usr/bin/rg", "/usr/local/bin/rg"];
-\t\t\tfor (const candidate of candidates) {
-\t\t\t\tif (candidate && existsSync(candidate)) return candidate;
-\t\t\t}
-\t\t\tthrow new Error(\`Could not resolve packaged ripgrep for \${process.platform}-\${process.arch} and no system rg was found\`);
-\t\t}
-\t});
-\treturn rgPathPromise;
-}`;
-s = s.replace(oldImport, oldImport + `\nimport { existsSync } from "node:fs";\nimport { createRequire } from "node:module";`);
-s = s.replace(oldFn, newFn);
-fs.writeFileSync(p, s);
-console.log("[2/2] plugin patched");
-NODE
-
-node --check "$PLUGIN"
+node --check "$PLUGIN_DIR/lib/index.js"
 echo "done. Apply to the live process (unless this just ran through the injector):"
 echo "  dev_reload_package \"dsh-tool-fs-search\""

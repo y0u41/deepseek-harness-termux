@@ -1,0 +1,60 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -2562,13 +2562,21 @@
+ 		return found;
+ 	}
+ };
++function requireInternal(id) {
++	const require = createRequire(import.meta.url);
++	if (process.execArgv.includes("--expose-internals")) try {
++		return require(id);
++	} catch {}
++	try {
++		return require("node-addon-require-builtin").requireBuiltin(id);
++	} catch {}
++}
+ function internalModules() {
+-	const addon = createRequire(import.meta.url)("node-addon-require-builtin");
+-	const esmModule = addon.requireBuiltin("internal/modules/esm/loader");
+-	const cjsModule = addon.requireBuiltin("internal/modules/cjs/loader");
+-	const cjsHelpers = addon.requireBuiltin("internal/modules/helpers");
+-	const esmUtils = addon.requireBuiltin("internal/modules/esm/utils");
+-	const esmResolve = addon.requireBuiltin("internal/modules/esm/resolve");
++	const esmModule = requireInternal("internal/modules/esm/loader");
++	const cjsModule = requireInternal("internal/modules/cjs/loader");
++	const cjsHelpers = requireInternal("internal/modules/helpers");
++	const esmUtils = requireInternal("internal/modules/esm/utils");
++	const esmResolve = requireInternal("internal/modules/esm/resolve");
+ 	const esm = esmModule.getOrInitializeCascadedLoader();
+ 	const modern = "getOrCreateModuleJob" in esm;
+ 	/* v8 ignore start -- the supported Node 24/26 matrix validates each available Internal interface */
+--- a/lib/worker/profile-resolution-bootstrap.js
++++ b/lib/worker/profile-resolution-bootstrap.js
+@@ -560,13 +560,21 @@
+ 		return found;
+ 	}
+ };
++function requireInternal(id) {
++	const require = createRequire(import.meta.url);
++	if (process.execArgv.includes("--expose-internals")) try {
++		return require(id);
++	} catch {}
++	try {
++		return require("node-addon-require-builtin").requireBuiltin(id);
++	} catch {}
++}
+ function internalModules() {
+-	const addon = createRequire(import.meta.url)("node-addon-require-builtin");
+-	const esmModule = addon.requireBuiltin("internal/modules/esm/loader");
+-	const cjsModule = addon.requireBuiltin("internal/modules/cjs/loader");
+-	const cjsHelpers = addon.requireBuiltin("internal/modules/helpers");
+-	const esmUtils = addon.requireBuiltin("internal/modules/esm/utils");
+-	const esmResolve = addon.requireBuiltin("internal/modules/esm/resolve");
++	const esmModule = requireInternal("internal/modules/esm/loader");
++	const cjsModule = requireInternal("internal/modules/cjs/loader");
++	const cjsHelpers = requireInternal("internal/modules/helpers");
++	const esmUtils = requireInternal("internal/modules/esm/utils");
++	const esmResolve = requireInternal("internal/modules/esm/resolve");
+ 	const esm = esmModule.getOrInitializeCascadedLoader();
+ 	const modern = "getOrCreateModuleJob" in esm;
+ 	/* v8 ignore start -- the supported Node 24/26 matrix validates each available Internal interface */

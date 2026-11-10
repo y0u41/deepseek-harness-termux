@@ -1,0 +1,20 @@
+--- a/lib/flock.js
++++ b/lib/flock.js
+@@ -7,14 +7,15 @@
+     if (binding)
+         return binding;
+     const { platform, arch } = process;
+-    if (platform !== 'linux' && platform !== 'darwin') {
++    const isAndroid = platform === 'android';
++    if (platform !== 'linux' && platform !== 'darwin' && !isAndroid) {
+         throw Object.assign(new Error(`flock is not supported on ${platform}-${arch}`), {
+             code: 'ERR_FLOCK_UNSUPPORTED_PLATFORM',
+             syscall: 'flock',
+         });
+     }
+     let filename = 'system.node';
+-    if (platform === 'linux') {
++    if (platform === 'linux' && !isAndroid) {
+         // Node's report types omit the libc field supplied by Linux reports.
+         const report = process.report.getReport();
+         filename = join(report.header.glibcVersionRuntime ? 'glibc' : 'musl', filename);

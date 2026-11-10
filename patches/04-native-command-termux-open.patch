@@ -1,0 +1,24 @@
+--- a/lib/types/path-opener.js
++++ b/lib/types/path-opener.js
+@@ -166,6 +166,12 @@
+         await run('xdg-open', [path], signal, 'hidden');
+         return;
+     }
++    if (platform === 'android') {
++        // Termux ships termux-open; it resolves the Android VIEW intent for
++        // the default application, which is usually the browser.
++        await run('termux-open', [path], signal, 'hidden');
++        return;
++    }
+     throw new Error(`native path opener is unsupported on ${platform}`);
+ }
+ /**
+@@ -182,6 +188,8 @@
+ export function canOpenNativePath(internals = {}) {
+     const platform = internals.platform ?? process.platform;
+     if (platform === 'darwin' || platform === 'win32')
++        return true;
++    if (platform === 'android')
+         return true;
+     if (platform !== 'linux')
+         return false;

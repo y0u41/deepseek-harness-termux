@@ -20,9 +20,108 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-if [ "$(uname -o 2>/dev/null)" != "Android" ]; then
-    echo "  [WARN] This script is designed for Termux (Android)."
-    echo "  [WARN] Continuing anyway; native builds may fail on other platforms."
+# ── Preflight: environment validation ───────────────────────────────────────
+# Everything here fails LOUD and EARLY. A mis-detected platform previously
+# surfaced as an obscure gyp error ten minutes into a native build, which is
+# strictly worse than refusing to start.
+# Set DSH_SKIP_PRECHECK=1 to bypass (not recommended).
+preflight() {
+    local fatal=0
+
+    echo "==> [preflight] Validating environment..."
+
+    # 1) Termux / Android -----------------------------------------------------
+    if [ "$(uname -o 2>/dev/null)" != "Android" ]; then
+        echo "  [ERROR] Not running on Android (uname -o = '$(uname -o 2>/dev/null)')."
+        echo "          This installer targets Termux. For a desktop Linux host use"
+        echo "          the upstream package instead: npm i -g @deepseek-ai/dsh"
+        fatal=1
+    else
+        echo "  [OK] Android detected"
+    fi
+
+    if [ -z "${PREFIX:-}" ]; then
+        echo "  [ERROR] \$PREFIX is not set — this does not look like Termux."
+        echo "          If sandboxing Termux, make sure the Termux environment is intact."
+        fatal=1
+    else
+        echo "  [OK] Termux PREFIX=$PREFIX"
+    fi
+
+    # 2) CPU architecture -----------------------------------------------------
+    # The prebuilt natives, the koffi build dir (android_arm64) and the NDK
+    # sysroot layout are all arm64-only. Running on x86_64 would silently
+    # "succeed" and then fail to load a binding at runtime.
+    local arch
+    arch="$(uname -m 2>/dev/null)"
+    case "$arch" in
+        aarch64|arm64)
+            echo "  [OK] Architecture $arch"
+            ;;
+        *)
+            echo "  [ERROR] Unsupported architecture '$arch' (need aarch64/arm64)."
+            echo "          The Android natives and NDK sysroot here are arm64-only."
+            fatal=1
+            ;;
+    esac
+
+    # 3) Node version ---------------------------------------------------------
+    # Upstream engines is >=20, but dsh 0.2.2-rc.1's loader paths and the
+    # patches in this repo are validated on 24+. Older majors take a different
+    # internal-modules shape and will fail differently at boot.
+    if ! command -v node >/dev/null 2>&1; then
+        echo "  [ERROR] node not found. Install it first: pkg install -y nodejs-lts"
+        fatal=1
+    else
+        local nv major
+        nv="$(node -v 2>/dev/null | sed 's/^v//')"
+        major="$(printf '%s' "$nv" | cut -d. -f1)"
+        if [ -z "$major" ] || [ "$major" -lt 24 ] 2>/dev/null; then
+            echo "  [ERROR] Node $nv is too old (need >= 24)."
+            echo "          pkg install -y nodejs-lts   # then re-run this script"
+            fatal=1
+        else
+            echo "  [OK] Node v$nv (ABI $(node -p 'process.versions.modules' 2>/dev/null))"
+        fi
+    fi
+
+    # 4) Required host commands ----------------------------------------------
+    local tool missing_tools=()
+    for tool in bash uname sed grep awk tar curl patch git; do
+        command -v "$tool" >/dev/null 2>&1 || missing_tools+=("$tool")
+    done
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        echo "  [ERROR] Missing required command(s): ${missing_tools[*]}"
+        echo "          pkg install -y ${missing_tools[*]}"
+        fatal=1
+    else
+        echo "  [OK] Required host commands present"
+    fi
+
+    # 5) Disk space ----------------------------------------------------------
+    # A full compile-on-device install lands around 750 MB.
+    local avail_kb
+    avail_kb="$(df -Pk "${HOME:-$PREFIX}" 2>/dev/null | awk 'NR==2{print $4}')"
+    if [ -n "$avail_kb" ] && [ "$avail_kb" -lt 1200000 ] 2>/dev/null; then
+        echo "  [WARN] Only $((avail_kb / 1024)) MB free under $HOME; a full install needs ~750 MB."
+        echo "         It may still work, but npm/native builds can fail with ENOSPC."
+    fi
+
+    if [ "$fatal" -ne 0 ]; then
+        echo ""
+        echo "  Preflight failed. Fix the item(s) above and re-run."
+        echo "  To bypass (unsupported): DSH_SKIP_PRECHECK=1 bash install.sh"
+        exit 1
+    fi
+    echo "  [OK] Preflight passed"
+    echo ""
+}
+
+if [ "${DSH_SKIP_PRECHECK:-0}" != "1" ]; then
+    preflight
+else
+    echo "  [WARN] DSH_SKIP_PRECHECK=1 — environment validation skipped."
+    echo "  [WARN] Mismatched platform/arch/Node will fail later with obscure errors."
 fi
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -391,12 +490,14 @@ echo "==> [4/9] Applying Android platform patches..."
 apply_patch "$REPO_DIR/patches/01-terminal-bash-android-shell.patch"         "$DSH_PKGS/dsh-terminal-bash" || true
 apply_patch "$REPO_DIR/patches/02-session-persistence-link-rename.patch"      "$DSH_PKGS/dsh-session-persistence-jsonl" || true
 apply_patch "$REPO_DIR/patches/03-subprocess-local-android.patch"             "$DSH_PKGS/dsh-subprocess-local" || true
-apply_patch "$REPO_DIR/patches/04-host-apiproxy-termux-open-index.patch"      "$DSH_PKGS/dsh-host-apiproxy" || true
-apply_patch "$REPO_DIR/patches/04-host-apiproxy-termux-open-opener.patch"     "$DSH_PKGS/dsh-host-apiproxy" || true
+apply_patch "$REPO_DIR/patches/04-native-command-termux-open.patch"           "$DSH_PKGS/dsh-native-command" || true
 apply_patch "$REPO_DIR/patches/05-host-directory-picker-native-android.patch" "$DSH_PKGS/dsh-host-directory-picker-native" || true
 apply_patch "$REPO_DIR/patches/06-workspace-archive-skip-session-known-check.patch" "$DSH_PKGS/dsh-workspace" || true
 apply_patch "$REPO_DIR/patches/07-sandbox-local-proot-runner.patch"           "$DSH_PKGS/dsh-sandbox-local" || true
 apply_patch "$REPO_DIR/patches/08-dsh-tool-fs-search-android-rg.patch"         "$DSH_PKGS/dsh-tool-fs-search" || true
+apply_patch "$REPO_DIR/patches/09-app-boot-expose-internals.patch"            "$DSH_PKGS/dsh-app-boot" || true
+apply_patch "$REPO_DIR/patches/10-inspector-worker-expose-internals.patch"     "$DSH_PKGS/dsh-experimental-inspector" || true
+apply_patch "$REPO_DIR/patches/11-node-addon-system-flock-android.patch"       "$DSH_PKGS/node-addon-system" || true
 
 # ripgrep platform-package shim: @vscode/ripgrep resolves
 # @vscode/ripgrep-${platform}-${arch}, which for Termux is
@@ -405,7 +506,7 @@ apply_patch "$REPO_DIR/patches/08-dsh-tool-fs-search-android-rg.patch"         "
 # process. Create the shim (bin/rg -> system rg) so require.resolve() (the
 # patched resolveRgPath in 08-*.patch) finds a binary. Idempotent.
 RG_SHIM="$DSH_PKGS/../@vscode/ripgrep-android-arm64"
-RG_SYSTEM="${RG_SYSTEM:-/data/data/com.termux/files/usr/bin/rg}"
+RG_SYSTEM="${RG_SYSTEM:-${PREFIX:-/data/data/com.termux/files/usr}/bin/rg}"
 if [ -x "$RG_SYSTEM" ]; then
     if [ ! -f "$RG_SHIM/package.json" ]; then
         mkdir -p "$RG_SHIM/bin"
@@ -500,6 +601,46 @@ if [ -f "$SUB_DIR/scripts/ensure-spawn-helper.mjs" ]; then
         echo "  [OK] subprocess spawn-helper restored (chmod 755)"
 fi
 
+# 5d. flock — compile the pure N-API flock addon for android-arm64 and drop it
+#     into an android platform-package shim. The patched flock.js (patch 11)
+#     require.resolve()s `@deepseek-ai/node-addon-system-android-arm64`; upstream
+#     ships no such package, and Android bionic is neither glibc nor musl, so
+#     the existing linux binaries cannot load. The source is self-contained
+#     N-API (ABI-stable) and bionic implements flock(2), so a direct clang
+#     compile against the cached node headers is sufficient.
+FLOCK_SRC="$DSH_PKGS/node-addon-system/src/flock.c"
+FLOCK_SHIM="$DSH_DIR/node_modules/@deepseek-ai/node-addon-system-android-arm64"
+FLOCK_NODE="$FLOCK_SHIM/bin/system.node"
+if [ -f "$FLOCK_NODE" ] && [ -f "$FLOCK_SHIM/package.json" ]; then
+    echo "  [SKIP] flock system.node already built."
+else
+    echo "  -> Building flock native addon (android-arm64, pure N-API)..."
+    if [ ! -f "$FLOCK_SRC" ]; then
+        echo "  [ERROR] flock source missing: $FLOCK_SRC"
+        exit 1
+    fi
+    mkdir -p "$FLOCK_SHIM/bin"
+    if clang -shared -fPIC -O2 -o "$FLOCK_NODE" "$FLOCK_SRC" -I"$NODE_GYP_CACHE/include/node"; then
+        chmod 755 "$FLOCK_NODE"
+        cat > "$FLOCK_SHIM/package.json" <<EOF
+{
+  "name": "@deepseek-ai/node-addon-system-android-arm64",
+  "version": "0.1.2",
+  "description": "Termux shim: prebuilt N-API flock addon for android-arm64 (bionic); upstream @deepseek-ai/node-addon-system has no android platform package.",
+  "license": "BSD-3-Clause",
+  "os": ["android"],
+  "cpu": ["arm64"]
+}
+EOF
+        echo "  [OK] flock system.node -> $FLOCK_NODE"
+    else
+        echo "  [ERROR] flock build failed!"
+        echo "  Common causes: missing clang (pkg install clang), missing node headers"
+        echo "  (rm -rf $NODE_GYP_CACHE && re-run install.sh)."
+        exit 1
+    fi
+fi
+
 # ── Step 6: Install sharp WebAssembly fallback ───────────────────────────────
 echo "==> [6/9] Installing sharp WebAssembly fallback..."
 if (cd "$DSH_DIR" && npm install @img/sharp-wasm32 > /dev/null 2>&1); then
@@ -561,6 +702,12 @@ else
     echo "    [MISS] koffi android_arm64 koffi.node"
     _NATIVE_MISSING=true
 fi
+if [ -f "$FLOCK_NODE" ]; then
+    echo "    [OK] flock android-arm64 system.node"
+else
+    echo "    [MISS] flock android-arm64 system.node"
+    _NATIVE_MISSING=true
+fi
 if $_NATIVE_MISSING; then
     echo ""
     echo "  [ERROR] Native modules are missing — the install is incomplete."
@@ -578,13 +725,15 @@ for patch_file in "$REPO_DIR"/patches/*.patch; do
         terminal-bash-android-shell)                dir="$DSH_PKGS/dsh-terminal-bash" ;;
         session-persistence-link-rename)            dir="$DSH_PKGS/dsh-session-persistence-jsonl" ;;
         subprocess-local-android)                   dir="$DSH_PKGS/dsh-subprocess-local" ;;
-        host-apiproxy-termux-open-index)            dir="$DSH_PKGS/dsh-host-apiproxy" ;;
-        host-apiproxy-termux-open-opener)           dir="$DSH_PKGS/dsh-host-apiproxy" ;;
+        native-command-termux-open)                 dir="$DSH_PKGS/dsh-native-command" ;;
         host-directory-picker-native-android)       dir="$DSH_PKGS/dsh-host-directory-picker-native" ;;
         workspace-archive-skip-session-known-check) dir="$DSH_PKGS/dsh-workspace" ;;
         sandbox-local-proot-runner)                 dir="$DSH_PKGS/dsh-sandbox-local" ;;
         dsh-tool-fs-search-android-rg)              dir="$DSH_PKGS/dsh-tool-fs-search" ;;
+        app-boot-expose-internals)                  dir="$DSH_PKGS/dsh-app-boot" ;;
+        inspector-worker-expose-internals)          dir="$DSH_PKGS/dsh-experimental-inspector" ;;
         koffi-statx)                                dir="$DSH_DIR/node_modules/koffi" ;;
+        node-addon-system-flock-android)            dir="$DSH_PKGS/node-addon-system" ;;
         *) dir="" ;;
     esac
     if [ -n "$dir" ] && [ -d "$dir" ]; then
@@ -617,6 +766,13 @@ if (cd "$DSH_DIR" && node -e "require('koffi'); process.exit(0)" 2>/dev/null); t
     echo "  koffi: OK"
 else
     echo "  [WARN] koffi fails to load — FFI features (file dialogs, etc.) may not work"
+fi
+
+# flock (session write lease) — android-arm64 N-API addon via the platform shim
+if (cd "$DSH_DIR" && node --input-type=module -e 'import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock"; import { openSync } from "node:fs"; const fd = openSync(process.env.HOME + "/.dsh-flock-smoke", "w"); await tryLockExclusive(fd); console.log("ok")' 2>/dev/null | grep -q ok); then
+    echo "  flock: OK"
+else
+    echo "  [WARN] flock android-arm64 addon failed — session writes may fail"
 fi
 
 # Sandbox smoke test: verify proot runner is active for Android

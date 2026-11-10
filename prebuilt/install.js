@@ -20,7 +20,7 @@ const path = require("node:path");
 
 // Bump together with patches/: only a dsh version whose sources the patches
 // apply to cleanly is safe to pin here. Overridable via DSH_VERSION.
-const DSH_VERSION = process.env.DSH_VERSION || "0.1.0-rc.6";
+const DSH_VERSION = process.env.DSH_VERSION || "0.2.2-rc.1";
 const PKG_DIR = __dirname;
 
 function sh(cmd, opts) {
@@ -95,30 +95,88 @@ const PATCH_TARGETS = [
   ["01-terminal-bash-android-shell.patch", "dsh-terminal-bash"],
   ["02-session-persistence-link-rename.patch", "dsh-session-persistence-jsonl"],
   ["03-subprocess-local-android.patch", "dsh-subprocess-local"],
-  ["04-host-apiproxy-termux-open-index.patch", "dsh-host-apiproxy"],
-  ["04-host-apiproxy-termux-open-opener.patch", "dsh-host-apiproxy"],
+  ["04-native-command-termux-open.patch", "dsh-native-command"],
   ["05-host-directory-picker-native-android.patch", "dsh-host-directory-picker-native"],
   ["06-workspace-archive-skip-session-known-check.patch", "dsh-workspace"],
   ["07-sandbox-local-proot-runner.patch", "dsh-sandbox-local"],
+  ["08-dsh-tool-fs-search-android-rg.patch", "dsh-tool-fs-search"],
+  // 09/10 are NOT optional cosmetics: without them `dsh web` dies at boot with
+  // "No usable native binding found for node-addon-require-builtin-android-arm64"
+  // because upstream ships no android build of that addon. Omitting them here
+  // was a real bug in this package — Plan B installs would crash immediately.
+  ["09-app-boot-expose-internals.patch", "dsh-app-boot"],
+  ["10-inspector-worker-expose-internals.patch", "dsh-experimental-inspector"],
   ["koffi-statx.patch", null], // koffi lives outside the @deepseek-ai scope
+  ["11-node-addon-system-flock-android.patch", "node-addon-system"],
 ];
+
+// Patches whose absence is fatal at runtime (not merely a lost feature).
+// A silent `[SKIP] inapplicable` on these must abort the install, otherwise the
+// user gets a package that installs "successfully" and then refuses to boot.
+const BOOT_CRITICAL_PATCHES = new Set([
+  "09-app-boot-expose-internals.patch",
+  "10-inspector-worker-expose-internals.patch",
+]);
+
+const fatalPatches = [];
+
 for (const [file, pkg] of PATCH_TARGETS) {
   const patch = path.join(PKG_DIR, "patches", file);
   const dir = pkg ? path.join(dshPkgs, pkg) : path.join(dshDir, "node_modules", "koffi");
   if (!fs.existsSync(patch)) {
     console.log("  [WARN] patch file missing:", file);
+    if (BOOT_CRITICAL_PATCHES.has(file)) fatalPatches.push(`${file}: file not shipped`);
     continue;
   }
   if (!fs.existsSync(dir)) {
     console.log("  [SKIP]", file, "(package dir not found)");
+    if (BOOT_CRITICAL_PATCHES.has(file)) fatalPatches.push(`${file}: target package missing (${pkg})`);
     continue;
   }
   if (sh(`patch -p1 --dry-run --forward < "${patch}"`, { cwd: dir })) {
     sh(`patch -p1 --forward < "${patch}"`, { cwd: dir });
     console.log("  [OK]", file);
+  } else if (sh(`patch -p1 --dry-run --reverse < "${patch}"`, { cwd: dir })) {
+    // Reverse-applies cleanly => it is genuinely already applied (idempotent rerun).
+    console.log("  [SKIP]", file, "(already applied)");
   } else {
-    console.log("  [SKIP]", file, "(already applied or inapplicable)");
+    // Neither forward nor reverse applies => the source has drifted from the
+    // version these patches were generated against. Never treat this as "fine".
+    console.log("  [SKIP]", file, "(INAPPLICABLE — upstream source drifted)");
+    if (BOOT_CRITICAL_PATCHES.has(file)) fatalPatches.push(`${file}: inapplicable (dsh source changed)`);
   }
+}
+
+console.log("==> [2b/5] Verifying the boot-critical internals fallback...");
+// Assert the patched source actually contains the fallback, rather than trusting
+// that `patch` did what we think. This is the exact line whose absence causes
+// "No usable native binding found for node-addon-require-builtin-android-arm64".
+const appBootIdx = path.join(dshPkgs, "dsh-app-boot", "lib", "index.js");
+let bootFallbackOk = false;
+if (fs.existsSync(appBootIdx)) {
+  const src = fs.readFileSync(appBootIdx, "utf8");
+  bootFallbackOk =
+    src.includes("function requireInternal(") &&
+    src.includes('require("node-addon-require-builtin").requireBuiltin(id)') &&
+    src.includes('requireInternal("internal/modules/esm/loader")');
+}
+if (bootFallbackOk) {
+  console.log("  [OK] dsh-app-boot uses the --expose-internals fallback");
+} else {
+  fatalPatches.push("dsh-app-boot/lib/index.js lacks the requireInternal() fallback");
+}
+
+if (fatalPatches.length > 0) {
+  console.error("");
+  console.error("  [ERROR] Boot-critical patch(es) did not apply:");
+  for (const p of fatalPatches) console.error("          -", p);
+  console.error("");
+  console.error("          Without them `dsh web` crashes at startup with");
+  console.error("          'No usable native binding found for node-addon-require-builtin-android-arm64'.");
+  console.error("          Most likely DSH_VERSION drifted from the version these patches were");
+  console.error("          generated against (pinned: " + DSH_VERSION + ").");
+  console.error("          See troubleshooting.md > problem 1.");
+  process.exit(1);
 }
 
 // ── Step 3: drop in the prebuilt native modules ─────────────────────────────
@@ -140,6 +198,31 @@ for (const [file, dest] of TARGETS) {
   console.log("  [OK]", file, "->", path.relative(globalRoot, dest));
 }
 
+// flock: create the android platform-package shim and drop in the prebuilt
+// system.node. The patched flock.js (patch 11) require.resolve()s
+// `@deepseek-ai/node-addon-system-android-arm64`; upstream ships no such
+// package, and Android bionic is neither glibc nor musl, so the linux binaries
+// cannot load. This mirrors the ripgrep shim created by install.sh.
+const flockShimDir = path.join(dshDir, "node_modules", "@deepseek-ai", "node-addon-system-android-arm64");
+const flockNodeSrc = path.join(prebuiltDir, "system.node");
+const flockNodeDest = path.join(flockShimDir, "bin", "system.node");
+if (fs.existsSync(flockNodeSrc)) {
+  fs.mkdirSync(path.dirname(flockNodeDest), { recursive: true });
+  fs.copyFileSync(flockNodeSrc, flockNodeDest);
+  fs.chmodSync(flockNodeDest, 0o755);
+  fs.writeFileSync(path.join(flockShimDir, "package.json"), JSON.stringify({
+    name: "@deepseek-ai/node-addon-system-android-arm64",
+    version: "0.1.2",
+    description: "Termux shim: prebuilt N-API flock addon for android-arm64 (bionic); upstream @deepseek-ai/node-addon-system has no android platform package.",
+    license: "BSD-3-Clause",
+    os: ["android"],
+    cpu: ["arm64"],
+  }, null, 2) + "\n");
+  console.log("  [OK] system.node ->", path.relative(globalRoot, flockNodeDest));
+} else {
+  console.log("  [WARN] prebuilt module missing: system.node (flock will be unavailable)");
+}
+
 // ── Step 3b: verify the natives actually load ───────────────────────────────
 // Catches an ABI/Node-version mismatch at install time with a clear message
 // instead of a confusing crash at first `dsh web`.
@@ -151,6 +234,21 @@ if (verify.includes("ok")) {
   console.error("  [ERROR] the prebuilt native modules failed to load on this Node.");
   console.error("          Node version:", process.version, "| platform:", process.platform, process.arch);
   console.error("          This package ships android-arm64 N-API binaries (Node >= 22.19).");
+  process.exit(1);
+}
+
+// flock must load through the patched JS entry (this exercises both the patch
+// and the dropped-in system.node). Session writes take a kernel write lease on
+// every materializing write, so a broken flock is fatal to persistence.
+const flockVerify = sh(
+  `node --input-type=module -e 'import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock"; import { openSync } from "node:fs"; const fd = openSync(process.env.HOME + "/.dsh-flock-smoke", "w"); await tryLockExclusive(fd); console.log("flock-ok")'`,
+  { cwd: dshDir },
+);
+if (flockVerify.includes("flock-ok")) {
+  console.log("  [OK] flock android-arm64 loads");
+} else {
+  console.error("  [ERROR] flock android-arm64 addon failed to load — session writes will fail.");
+  console.error("          Node version:", process.version, "| platform:", process.platform, process.arch);
   process.exit(1);
 }
 
