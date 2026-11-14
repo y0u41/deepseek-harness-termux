@@ -108,7 +108,9 @@ jobs:
           EOF
 
   patch-applicability:
-    name: 补丁适用性（${{ env.DSH_VERSION }}）
+    # `env` 上下文在 job `name` 里不可用（GitHub 会判整个 workflow 无效、0 job 直接失败），
+    # 所以 job 名保持静态；DSH_VERSION 仍通过 env 在 run 步骤里使用。
+    name: 补丁适用性（-F0 dry-run）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
