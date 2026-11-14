@@ -3,6 +3,49 @@
 本项目的版本号沿用 `<dsh 版本>-termux.<补丁发布号>`。
 补丁发布号递增表示"同一上游 dsh 版本上的仓库更新"，升级方式见 README 的「升级与卸载」。
 
+## v0.2.2-termux.3 — 2026-11-14
+
+上游适配版本从 `0.2.2-rc.1`（npm `latest` tag）升级到 `0.2.2-rc.3`（npm `next` tag）。
+全部 11 个源码补丁按 rc.3 的 bundle 重新生成，`patch -F0` 逐条验证可干净应用。
+
+### 重新生成：补丁 03（subprocess-local）
+
+- 目标文件随上游构建哈希改名：`lib/runner-launch-B2zsQ1Dz.js` → `lib/runner-launch-CKTiL8M8.js`
+- `fallbackOwner().alive()` 的判断结构被上游重写（不再是一行三元嵌套），补丁改为在
+  `directSettled && platform === "linux"` 分支上追加 `android`
+- 语义不变：`createProcessInspector()` 与进程组存活判定仍把 `android` 视作 `linux`
+
+### 重新生成：补丁 08（ripgrep）
+
+- rc.3 把 `resolveRgPath()` 从 `dsh-tool-fs-search` 抽到了新包 **`@deepseek-ai/dsh-util-ripgrep`**，
+  工具包只保留 `import { resolveRgPath, spawnRipgrep }`，因此补丁目标包随之改变
+- 补丁内容保持原有策略：`require.resolve()` 静默解析 `@vscode/ripgrep-<platform>-<arch>`，
+  失败回退 `RIPGREP_BIN` / `$PREFIX/bin/rg` / `/usr/bin/rg` / `/usr/local/bin/rg`，
+  并保留 Electron 的 `.asar` → `.asar.unpacked` 重写
+- 同步更新：`patches/targets.json`、`install.sh`（应用表 + 校验表）、`healthcheck.sh`、
+  `prebuilt/install.js`、`scripts/fix-dsh-glob-rg.sh`
+
+### 其余补丁
+
+- 01/02/04/05/06/07/09/10/11 的修改内容未变，仅按 rc.3 的实际行号/上下文重新生成
+- `koffi-statx.patch`（koffi 3.1.1）与补丁 11（node-addon-system 0.1.2）的上游版本未变
+
+### 版本同步
+
+- `install.sh` / `prebuilt/install.js` / `patches/targets.json` / `.github/workflows/ci.yml`
+  的 pin 统一为 `0.2.2-rc.3`；`DSH_VERSION=<ver>` 仍可覆盖
+- `prebuilt/package.json` 版本跟随本仓库发布号：`0.2.2-termux.2` → `0.2.2-termux.3`
+
+### 修复：healthcheck 把“上游已折叠”误报为未应用
+
+- 上游把补丁的同一改动自行合入时（重命名内容哈希 bundle、或把逻辑搬到新包），
+  `patch --reverse --dry-run` 会失败，原来会直接报 `NOT applied — re-run install.sh`
+- 新增 `patch_upstreamed()`：按**行为**而非 diff 形状探测，命中时输出
+  `obsolete — upstream already ships this change`，不再误报
+- 03 同时要求 `lib/index.js` 与 `runner-launch-*.js` 都命中，避免“半应用”被当成 obsolete；
+  08 探测 `dsh-util-ripgrep/lib/index.js` 中的 `RIPGREP_BIN` 回退
+- 注意：`install.sh` 的打补丁环节仍是“不适用即失败”（关键补丁直接中止），未同步该豁免
+
 ## v0.2.2-termux.2 — 2026-11-10
 
 针对 `v0.2.2-termux.1` 审查结果的一次交付质量修复。核心结论是：**两条安装路径此前都不可用**，

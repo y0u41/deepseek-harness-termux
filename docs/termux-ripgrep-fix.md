@@ -43,7 +43,7 @@ node_modules/@vscode/ripgrep-android-arm64/
 └── bin/rg -> /data/data/com.termux/files/usr/bin/rg
 ```
 
-### Part 2 — 补丁 `dsh-tool-fs-search` 的 `resolveRgPath()`
+### Part 2 — 补丁 `dsh-util-ripgrep` 的 `resolveRgPath()`
 
 `patches/08-dsh-tool-fs-search-android-rg.patch`（`install.sh` 自动应用）把原来基于
 `import("@vscode/ripgrep")`（会触发模块求值 → 抛错 → 缓存失败结果）的解析替换为：
@@ -56,27 +56,32 @@ node_modules/@vscode/ripgrep-android-arm64/
 `require.resolve` 同样绕过了 Node 对坏 ESM 模块的失败缓存，因此**热重载后当前运行中的 server 进程即刻恢复**。
 
 ```js
-rgPathPromise ??= Promise.resolve().then(() => {
+rgPathPromise ??= Promise.resolve().then(async () => {
+  const executable = parse(process.execPath);
+  const executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;
+  if ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;
   const require = createRequire(import.meta.url);
   const binaryName = process.platform === "win32" ? "rg.exe" : "rg";
+  const unpackAsar = (candidate) => process.versions.electron === void 0 ? candidate : candidate.replace(/\.asar(?=[\\/])/u, ".asar.unpacked");
   try {
-    return require.resolve(`@vscode/ripgrep-${process.platform}-${process.arch}/bin/${binaryName}`);
-  } catch {
-    const candidates = process.env.RIPGREP_BIN
-      ? [process.env.RIPGREP_BIN]
-      : ["/data/data/com.termux/files/usr/bin/rg", "/usr/bin/rg", "/usr/local/bin/rg"];
-    for (const candidate of candidates) {
-      if (candidate && existsSync(candidate)) return candidate;
-    }
-    throw new Error(`Could not resolve packaged ripgrep for ${process.platform}-${process.arch} and no system rg was found`);
-  }
+    return unpackAsar(require.resolve(`@vscode/ripgrep-${process.platform}-${process.arch}/bin/${binaryName}`));
+  } catch {}
+  const prefix = process.env.PREFIX || "/data/data/com.termux/files/usr";
+  const candidates = [
+    process.env.RIPGREP_BIN,
+    `${prefix}/bin/rg`,
+    "/usr/bin/rg",
+    "/usr/local/bin/rg"
+  ].filter(Boolean);
+  for (const candidate of candidates) if (existsSync(candidate)) return unpackAsar(candidate);
+  throw new Error(`ripgrep not found for ${process.platform}-${process.arch}: no @vscode/ripgrep platform package and no system rg (pkg install ripgrep)`);
 });
 ```
 
 ## 仓库集成
 
 - `install.sh` 在打完所有补丁后自动创建 shim（幂等），并应用 `08-*.patch`；
-- 安装完成时的 patched 校验循环会把 `08-dsh-tool-fs-search-android-rg` 映射到 `dsh-tool-fs-search` 校验。
+- 安装完成时的 patched 校验循环会把 `08-dsh-tool-fs-search-android-rg` 映射到 `dsh-util-ripgrep` 校验。
 
 ## 重新应用 / 恢复（`npm update -g @deepseek-ai/dsh` 之后）
 
@@ -89,7 +94,7 @@ bash ~/deepseek-harness-termux/scripts/fix-dsh-glob-rg.sh
 脚本幂等（已修补则直接提示跳过），执行完会提示对运行中的实例热重载：
 
 ```
-dev_reload_package "dsh-tool-fs-search"
+dev_reload_package "dsh-util-ripgrep"
 ```
 
 ## 验证
@@ -103,7 +108,7 @@ node -e 'console.log(require.resolve("@vscode/ripgrep-android-arm64/bin/rg"))'
 
 # 3. 插件已修补（包含 require.resolve 标记）
 grep -n 'createRequire(import.meta.url)' \
-  ~/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-tool-fs-search/lib/index.js
+  ~/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-util-ripgrep/lib/index.js
 
 # 4. 热重载后实际调用 glob / grep 工具，不再报 "ripgrep launch failed"
 ```

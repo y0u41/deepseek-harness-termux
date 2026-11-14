@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 env:
-  DSH_VERSION: "0.2.2-rc.1"
+  DSH_VERSION: "0.2.2-rc.3"
 
 jobs:
   syntax:
@@ -124,7 +124,7 @@ jobs:
           node - <<'EOF' > /tmp/pkgs/list.tsv
           const t = require("./patches/targets.json").patches;
           for (const [file, meta] of Object.entries(t)) {
-            const ver = meta.version || process.env.DSH_VERSION || "0.2.2-rc.1";
+            const ver = meta.version || process.env.DSH_VERSION || "0.2.2-rc.3";
             console.log(`${file}\t${meta.package}\t${ver}`);
           }
           EOF

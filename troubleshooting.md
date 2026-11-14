@@ -476,7 +476,7 @@ cd ~/deepseek-harness-termux && bash install.sh
 
 `install.sh` 是幂等的：已应用的补丁跳过，已编译的产物跳过；但被覆盖掉的补丁会被重新应用。
 
-**版本漂移警告**：补丁是按 `@deepseek-ai/dsh` 0.2.2-rc.1 的源码上下文生成的（`diff -u` 精确匹配）。上游改动过大时 `patch` 会拒绝应用，脚本会打印 `[SKIP] ... inapplicable`。此时需要重新生成补丁，不能盲目重跑。
+**版本漂移警告**：补丁是按 `@deepseek-ai/dsh` 0.2.2-rc.3 的源码上下文生成的（`diff -u` 精确匹配）。上游改动过大时 `patch` 会拒绝应用，脚本会打印 `[SKIP] ... inapplicable`。此时需要重新生成补丁，不能盲目重跑。
 
 ### 是否彻底解决
 

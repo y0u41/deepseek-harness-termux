@@ -1,6 +1,6 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -1908,7 +1908,7 @@
+@@ -1922,7 +1922,7 @@
  	const options = {
  		workerData: boot,
  		transferList: [boot.hostSourcePort],

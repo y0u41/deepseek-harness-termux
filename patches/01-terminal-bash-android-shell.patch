@@ -1,6 +1,6 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -2,11 +2,25 @@
+@@ -3,11 +3,25 @@
  import { ENCODING_PREAMBLE, resolvePwshPath } from "@deepseek-ai/dsh-pwsh-local";
  import z from "@deepseek-ai/schemastery";
  import { Buffer } from "node:buffer";

@@ -1,10 +1,9 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -14,6 +14,34 @@
- *
+@@ -15,6 +15,34 @@
  * @module @deepseek-ai/dsh-sandbox-local/profiles
  */
-+/**
+ /**
 +* Build the proot profile arguments for one file-effect policy.
 +*
 +* proot uses ptrace-based user-space "bind" (no mount namespaces, no
@@ -32,10 +31,11 @@
 +	}
 +	return args;
 +}
- /**
++/**
  * Build the bwrap profile arguments for one file-effect policy.
  * @param policy - file-effect policy to express as bwrap mounts.
-@@ -114,6 +142,24 @@
+ * @returns profile arguments before the trailing separator and command argv.
+@@ -126,6 +154,24 @@
  	}).status === 0;
  }
  /**
@@ -60,7 +60,7 @@
  * Functional Seatbelt probe: apply the real `read-only` profile through
  * `sandbox-exec -p` and run `true` under it — exit 0 means the kernel
  * accepted and enforced the profile (`sandbox-exec` exits non-zero when
-@@ -174,6 +220,7 @@
+@@ -186,6 +232,7 @@
  */
  const PLATFORM_CHAINS = {
  	linux: ["bwrap", "landlock"],
@@ -68,7 +68,7 @@
  	darwin: ["seatbelt"],
  	win32: ["windows-acl"]
  };
-@@ -189,6 +236,7 @@
+@@ -201,6 +248,7 @@
  const STATIC_ENFORCEMENT = {
  	bwrap: "full",
  	landlock: "full",
@@ -76,7 +76,7 @@
  	seatbelt: "full",
  	"windows-acl": "partial"
  };
-@@ -208,6 +256,7 @@
+@@ -220,6 +268,7 @@
  const DENIAL_SIGNATURES = {
  	bwrap: ["read-only file system"],
  	landlock: ["permission denied"],
@@ -84,7 +84,7 @@
  	seatbelt: ["operation not permitted"],
  	"windows-acl": [
  		"access is denied",
-@@ -232,6 +281,7 @@
+@@ -244,6 +293,7 @@
  */
  const RUNNER_FAILURE_RULES = {
  	bwrap: [{ fatalSignatures: ["bwrap: "] }],
@@ -92,7 +92,7 @@
  	landlock: [{
  		allowedExitCodes: [LAUNCHER_FAILURE_EXIT],
  		fatalSignatures: [`${LAUNCHER_BIN}: `],
-@@ -322,11 +372,12 @@
+@@ -334,11 +384,12 @@
  			runnerFailureRules: [{ fatalSignatures: this.configuredRunnerFailureSignatures }]
  		});
  		const selected = this.selectRunner(policy.mode);
@@ -106,7 +106,7 @@
  				...argv
  			],
  			enforcement: selected.enforcement,
-@@ -338,6 +389,7 @@
+@@ -350,6 +401,7 @@
  	runnerArgv(runner, policy) {
  		switch (runner) {
  			case "bwrap": return ["bwrap", ...bwrapProfileArgs(policy)];
@@ -114,7 +114,7 @@
  			case "landlock": return [this.landlockLauncher(), ...landlockProfileArgs(policy)];
  			case "seatbelt": return [this.seatbeltExec(), ...seatbeltProfileArgs(policy)];
  			case "windows-acl": return this.windowsAclRunnerArgv(policy);
-@@ -517,6 +569,7 @@
+@@ -548,6 +600,7 @@
  	probeRunner(runner) {
  		switch (runner) {
  			case "bwrap": return (this.internals.probeBwrap ?? (() => defaultProbeBwrap(this.probeTimeoutMs)))() ? "full" : "unusable";

@@ -2,7 +2,7 @@
 
 > A minimal but working patch-and-gotcha collection for running **dsh** on **native Termux**. Not an official solution, and not guaranteed to keep working across versions.
 >
-> This repository continues the upstream work of [Vengisk/deepseek-harness-termux](https://github.com/Vengisk/deepseek-harness-termux): the patch approach, troubleshooting findings and prebuilt packaging all originate there. On top of that, this fork adds the dsh `0.2.2-rc.1` port, the boot-critical patches (09/10/11), install-time preflight validation and a documentation rewrite. Upstream authorship is preserved in the commit history.
+> This repository continues the upstream work of [Vengisk/deepseek-harness-termux](https://github.com/Vengisk/deepseek-harness-termux): the patch approach, troubleshooting findings and prebuilt packaging all originate there. On top of that, this fork adds the dsh `0.2.2-rc.3` port, the boot-critical patches (09/10/11), install-time preflight validation and a documentation rewrite. Upstream authorship is preserved in the commit history.
 
 [`@deepseek-ai/dsh`](https://github.com/deepseek-ai/deepseek-harness) (DeepSeek Harness) is published as a glibc Linux package. On Android/Termux it fails to start in a way that is hard to diagnose yourself — not because a dependency is missing, but because an **android-arm64 build of a required native addon simply does not exist**.
 
@@ -118,7 +118,7 @@ The only combination that has been **actually run end-to-end and fully self-chec
 | clang | `21.1.8` | Needed to compile the natives |
 | ripgrep | `15.2.0` (`+pcre2`) | |
 | proot | Termux `proot` package | Sandbox runner |
-| dsh | **`0.2.2-rc.1`** | Patches were generated against this upstream source. Other versions **unverified** |
+| dsh | **`0.2.2-rc.3`** | Patches were generated against this upstream source. Other versions **unverified** |
 | SELinux context | `u:object_r:app_data_file:s0:c20,c257,c512,c768` | Under this context `link(2)` is **denied everywhere** — see patch 02 |
 | Shared storage | `/sdcard` available (FUSE) | FUSE semantics still apply |
 
@@ -128,7 +128,7 @@ The only combination that has been **actually run end-to-end and fully self-chec
 - Android 8–15, 17+
 - x86_64 / armeabi-v7a
 - Non-Termux Android terminals (UserLAnd, Andronix, …)
-- Any dsh version other than 0.2.2-rc.1
+- Any dsh version other than 0.2.2-rc.3
 - The Play Store build of Termux
 
 ---
@@ -205,7 +205,7 @@ The Android 12+ phantom process killer cannot be disabled; only `termux-wake-loc
 
 ### 5. Patches are tightly coupled to one upstream version — structural cost
 
-Generating `diff -u` patches against `@deepseek-ai/dsh` **0.2.2-rc.1** means any upstream refactor can make `patch` refuse to apply. This is not fixable — it is the inherent cost of patching someone else's package.
+Generating `diff -u` patches against `@deepseek-ai/dsh` **0.2.2-rc.3** means any upstream refactor can make `patch` refuse to apply. This is not fixable — it is the inherent cost of patching someone else's package.
 
 ---
 
@@ -221,7 +221,7 @@ Generating `diff -u` patches against `@deepseek-ai/dsh` **0.2.2-rc.1** means any
 
 | Your need | Why this does not fit | Alternative |
 |---|---|---|
-| **Production-grade stability** | dsh itself is `0.2.2-rc.1` (an RC) and this is a community patch set; neither promises stability | Remote Linux host + official dsh |
+| **Production-grade stability** | dsh itself is `0.2.2-rc.3` (an RC) and this is a community patch set; neither promises stability | Remote Linux host + official dsh |
 | **Full sandbox / real isolation** | The sandbox is proot: `read-only` not enforced, host FS visible, uid unchanged | Separate device, Android work profile, remote Linux |
 | **Zero debugging tolerance** | bionic/glibc differences, SELinux, FUSE — you may have to tell them apart yourself | proot Ubuntu, or a packaged APK |
 | **System-level package management** | Termux uses `pkg`; complex deps (e.g. `libreoffice`) are effectively unsolvable | proot Ubuntu |
@@ -244,7 +244,7 @@ Generating `diff -u` patches against `@deepseek-ai/dsh` **0.2.2-rc.1** means any
 | [`05-host-directory-picker-native-android.patch`](patches/05-host-directory-picker-native-android.patch) | `dsh-host-directory-picker-native` | No longer throws “unsupported” on Android, it probes zenity/kdialog — neither exists on Termux, so **directory picking still does not work**; only the error message becomes accurate. Use the in-app browse picker |
 | [`06-workspace-archive-skip-session-known-check.patch`](patches/06-workspace-archive-skip-session-known-check.patch) | `dsh-workspace` | Skips `sessionKnown()` when archiving (fails on fresh installs) |
 | [`07-sandbox-local-proot-runner.patch`](patches/07-sandbox-local-proot-runner.patch) | `dsh-sandbox-local` | Adds `proot` to the Android chain with `enforcement: partial`; redirects `/tmp` to `$PREFIX/tmp` |
-| [`08-dsh-tool-fs-search-android-rg.patch`](patches/08-dsh-tool-fs-search-android-rg.patch) | `dsh-tool-fs-search` | `require.resolve()` + system-rg fallback; `@vscode/ripgrep` has no android-arm64 package (see [`docs/termux-ripgrep-fix.md`](docs/termux-ripgrep-fix.md)) |
+| [`08-dsh-tool-fs-search-android-rg.patch`](patches/08-dsh-tool-fs-search-android-rg.patch) | `dsh-util-ripgrep` | `require.resolve()` + system-rg fallback; `@vscode/ripgrep` has no android-arm64 package (see [`docs/termux-ripgrep-fix.md`](docs/termux-ripgrep-fix.md)) |
 | [`09-app-boot-expose-internals.patch`](patches/09-app-boot-expose-internals.patch) | `dsh-app-boot` | `internalModules()` tries `--expose-internals` first, then the native addon |
 | [`10-inspector-worker-expose-internals.patch`](patches/10-inspector-worker-expose-internals.patch) | `dsh-experimental-inspector` | Worker `execArgv` `[]` → `["--expose-internals"]` (workers do not inherit parent flags) |
 | [`11-node-addon-system-flock-android.patch`](patches/11-node-addon-system-flock-android.patch) | `node-addon-system` | `flock.js` accepts the `android` platform; with install.sh step 5d compiling the android-arm64 `system.node`, session write locks no longer throw `ERR_FLOCK_UNSUPPORTED_PLATFORM` |
@@ -268,7 +268,7 @@ Covers:
 2. **`--expose-internals` reachability** (shebang, `internal/modules/*`, whether the native addon was unexpectedly enabled)
 3. Native modules (`node-pty`, `koffi`, real `sharp` encode/decode, real PTY spawn)
 4. Search backend (rg, `@vscode/ripgrep-android-arm64` shim)
-5. Patch coverage (per-patch `patch --dry-run --reverse`)
+5. Patch coverage (per-patch `patch --dry-run --reverse`; if upstream has already folded the same change in, a behaviour probe reports *obsolete* instead of a false `NOT applied`)
 6. Sandbox capability (proot executability + an explicit partial-enforcement note)
 7. Port occupancy (connect probe + unauthenticated request must return 401)
 8. **`/sdcard` and FUSE risks** (measures `link(2)` / `rename(2)`, checks whether `DSH_HOME` sits on shared storage)
@@ -308,7 +308,7 @@ deepseek-harness-termux/
 ## Disclaimer
 
 1. **Not official.** Community-maintained; unaffiliated with and not endorsed by DeepSeek AI or the `deepseek-harness` project.
-2. **No stability promise.** `@deepseek-ai/dsh` is currently `0.2.2-rc.1` (an RC). These patches target that source and are **not guaranteed to work across versions**.
+2. **No stability promise.** `@deepseek-ai/dsh` is currently `0.2.2-rc.3` (an RC). These patches target that source and are **not guaranteed to work across versions**.
 3. **No security promise.** The proot sandbox is **not a security boundary**: `read-only` is not enforced, the host filesystem is visible, and process identity is not isolated. **Do not let it run untrusted commands on a device holding sensitive credentials.**
 4. **Use at your own risk.** The installer modifies a global npm package (`$(npm root -g)/@deepseek-ai/dsh`) and appends to `~/.bashrc` (append only — never rewritten). Run it knowing that.
 5. **No warranty.** Under the MIT licence the software is provided "as is", without warranty of any kind.

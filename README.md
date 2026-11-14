@@ -2,7 +2,7 @@
 
 > 这是一个针对 **Termux 原生环境**的 dsh 最小可用补丁与排雷集合，不是官方方案，也不保证跨版本长期有效。
 >
-> 本仓库基于 [Vengisk/deepseek-harness-termux](https://github.com/Vengisk/deepseek-harness-termux) 的上游工作继续维护：补丁思路、排错结论与预编译方案均源自该仓库，本仓库在此之上完成 dsh `0.2.2-rc.1` 适配、启动关键补丁（09/10/11）、安装前置校验与文档重构。上游作者的署名保留在 commit 历史中。
+> 本仓库基于 [Vengisk/deepseek-harness-termux](https://github.com/Vengisk/deepseek-harness-termux) 的上游工作继续维护：补丁思路、排错结论与预编译方案均源自该仓库，本仓库在此之上完成 dsh `0.2.2-rc.3` 适配、启动关键补丁（09/10/11）、安装前置校验与文档重构。上游作者的署名保留在 commit 历史中。
 
 `@deepseek-ai/dsh`（DeepSeek Harness，官方仓库 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)）的 npm 包是按 glibc Linux 构建的。在 Android/Termux 上它会以一种很难自己定位的方式启动失败 —— 不是缺依赖，而是缺一个**根本不存在的 android 平台预编译二进制**。
 
@@ -120,7 +120,7 @@ kill "$(cat ~/.dsh-web.pid 2>/dev/null)"
 | clang | `21.1.8` | 编译原生模块需要 |
 | ripgrep | `15.2.0`（`+pcre2`） | |
 | proot | Termux 包 `proot` | 沙箱运行器 |
-| dsh | **`0.2.2-rc.1`** | 补丁针对此版本的上游源码生成，其他版本**未验证** |
+| dsh | **`0.2.2-rc.3`** | 补丁针对此版本的上游源码生成，其他版本**未验证** |
 | SELinux 上下文 | `u:object_r:app_data_file:s0:c20,c257,c512,c768` | 该上下文下 `link(2)` **被全线拒绝**，见补丁 02 |
 | 共享存储 | `/sdcard` 可用（FUSE） | FUSE 语义限制仍在，见[局限与风险](#局限与风险) |
 
@@ -130,7 +130,7 @@ kill "$(cat ~/.dsh-web.pid 2>/dev/null)"
 - Android 8–15、Android 17+
 - x86_64 / armeabi-v7a 设备
 - 非 Termux 的 Android 终端（如 UserLAnd、Andronix）
-- dsh 0.2.2-rc.1 之外的任何版本
+- dsh 0.2.2-rc.3 之外的任何版本
 - Google Play 版 Termux
 
 ---
@@ -155,7 +155,7 @@ kill "$(cat ~/.dsh-web.pid 2>/dev/null)"
 |---|---|---|---|
 | 1 | **沙箱不是安全边界**（proot `enforcement: partial`） | 补丁 07 用 `-b /:/` 把整个宿主文件系统**以读写方式**绑进沙箱：`read-only` 策略不生效、`uid` 与宿主相同、无 namespace/seccomp，写 `/tmp` 也不受限。无法阻止模型越权读写 `~/.ssh`、`~/.dsh/.credentials.yaml` | 依赖 dsh 自身的审批（approval）机制。需真实隔离请用远程 Linux 主机或独立设备 |
 | 2 | **原生模块编译脆弱** | clang / cmake / NDK sysroot / node headers / `common.gypi` 任一环节出错即失败，且报错常不指向真正原因 | `install.sh` 做了两阶段安装（先 `--ignore-scripts`，环境就绪后再编译）；失败时按 [`troubleshooting.md` 3/4](troubleshooting.md) 排查；或用方案 B 预编译 |
-| 3 | **dsh 版本漂移** | `npm i -g @deepseek-ai/dsh` 会覆盖全部补丁与 shebang，启动崩溃立即复现；上游重构会让补丁 `patch` 拒绝应用 | 升级后**必须**重跑 `bash install.sh`。脚本现在固定安装 `0.2.2-rc.1`（可用 `DSH_VERSION` 覆盖），补丁以 `-F0` 精确匹配：一旦漂移会打印 `[FAIL]`，对 02/09/11/koffi 直接中止，不再产出「安装成功但启动即崩」的环境 |
+| 3 | **dsh 版本漂移** | `npm i -g @deepseek-ai/dsh` 会覆盖全部补丁与 shebang，启动崩溃立即复现；上游重构会让补丁 `patch` 拒绝应用 | 升级后**必须**重跑 `bash install.sh`。脚本现在固定安装 `0.2.2-rc.3`（可用 `DSH_VERSION` 覆盖），补丁以 `-F0` 精确匹配：一旦漂移会打印 `[FAIL]`，对 02/09/11/koffi 直接中止，不再产出「安装成功但启动即崩」的环境 |
 | 4 | **`link(2)` 被 SELinux 全线拒绝** | 会话持久化、workspace 归档的原子写入路径失效（`EACCES`/`EPERM`） | 补丁 02 回退到同盘原子 `rename(2)`（已实测可用）。**注意**：workspace 与 `DSH_HOME` 在同一文件系统内才保持原子性 |
 | 5 | **`/sdcard` 是 FUSE** | 无硬链接、无 exec 位、无软链接、大小写不敏感、`rename` 语义不同 | 把 `DSH_HOME` 与 workspace 放在内部存储（`$HOME`）。`healthcheck.sh` 第 8 节会实测并在越界时 `FAIL` |
 | 6 | **Android 12+ phantom process killer** | 后台 `node` 可能被系统回收，表现为"用着用着突然连不上" | `termux-wake-lock` + 设置里把 Termux 电池优化设为"无限制"。只能降低概率，无法关闭 |
@@ -207,7 +207,7 @@ Android 12+ phantom process killer 无法关闭，只能 `termux-wake-lock` + �
 
 ### 5. 补丁与上游版本的强耦合 —— 结构性代价
 
-补丁用 `diff -u` 针对 `@deepseek-ai/dsh` **0.2.2-rc.1** 的源码上下文生成。上游任何重构都可能使 `patch` 拒绝应用。这不是可以"修好"的问题，是"对上游包打补丁"这种方案的固有代价。
+补丁用 `diff -u` 针对 `@deepseek-ai/dsh` **0.2.2-rc.3** 的源码上下文生成。上游任何重构都可能使 `patch` 拒绝应用。这不是可以"修好"的问题，是"对上游包打补丁"这种方案的固有代价。
 
 ---
 
@@ -225,7 +225,7 @@ Android 12+ phantom process killer 无法关闭，只能 `termux-wake-lock` + �
 
 | 你的需求 | 为什么这套方案不合适 | 建议替代 |
 |---|---|---|
-| **生产级稳定** | dsh 本身是 `0.2.2-rc.1`（RC 版本），本仓库是社区补丁集，两者都不承诺稳定 | 远程 Linux 主机 + 官方 dsh |
+| **生产级稳定** | dsh 本身是 `0.2.2-rc.3`（RC 版本），本仓库是社区补丁集，两者都不承诺稳定 | 远程 Linux 主机 + 官方 dsh |
 | **完整沙箱 / 真实隔离** | 这里的沙箱是 proot，`read-only` 不生效、宿主 FS 可见、uid 不变 | 独立设备、Android 工作资料、远程 Linux |
 | **不能接受调试成本** | 编译工具链、bionic/glibc 差异、SELinux、FUSE 都可能要自己分辨 | proot Ubuntu 或封装 APK |
 | **需要系统级包管理** | Termux 是 `pkg`，包集合与 apt 不同；复杂依赖（如 `libreoffice`）基本无解 | proot Ubuntu |
@@ -248,7 +248,7 @@ Android 12+ phantom process killer 无法关闭，只能 `termux-wake-lock` + �
 | [`05-host-directory-picker-native-android.patch`](patches/05-host-directory-picker-native-android.patch) | `dsh-host-directory-picker-native` | Android 下不再抛「unsupported」，而是走 zenity/kdialog 探测；两者在 Termux 上都不存在，因此**目录选择功能实际仍不可用**，只是错误信息变成可读的说明。请用 Web 端的目录浏览 |
 | [`06-workspace-archive-skip-session-known-check.patch`](patches/06-workspace-archive-skip-session-known-check.patch) | `dsh-workspace` | 归档时跳过 `sessionKnown()` 校验（全新安装下会失败） |
 | [`07-sandbox-local-proot-runner.patch`](patches/07-sandbox-local-proot-runner.patch) | `dsh-sandbox-local` | Android 平台链加入 `proot`，`enforcement: partial`；`/tmp` 重定向到 `$PREFIX/tmp` |
-| [`08-dsh-tool-fs-search-android-rg.patch`](patches/08-dsh-tool-fs-search-android-rg.patch) | `dsh-tool-fs-search` | `require.resolve()` + 系统 rg 回退；`@vscode/ripgrep` 无 android-arm64 平台包（见 [`docs/termux-ripgrep-fix.md`](docs/termux-ripgrep-fix.md)） |
+| [`08-dsh-tool-fs-search-android-rg.patch`](patches/08-dsh-tool-fs-search-android-rg.patch) | `dsh-util-ripgrep` | `require.resolve()` + 系统 rg 回退；`@vscode/ripgrep` 无 android-arm64 平台包（见 [`docs/termux-ripgrep-fix.md`](docs/termux-ripgrep-fix.md)） |
 | [`09-app-boot-expose-internals.patch`](patches/09-app-boot-expose-internals.patch) | `dsh-app-boot` | `internalModules()` 先走 `--expose-internals`，再回退原生 addon |
 | [`10-inspector-worker-expose-internals.patch`](patches/10-inspector-worker-expose-internals.patch) | `dsh-experimental-inspector` | worker 的 `execArgv` 由 `[]` 改为 `["--expose-internals"]`（Node 的 Worker 本会继承父进程 `execArgv`，是上游显式写成 `[]` 才丢了 flag；该补丁只影响可选的 inspector 包，不是 `dsh web` 的启动前提） |
 | [`11-node-addon-system-flock-android.patch`](patches/11-node-addon-system-flock-android.patch) | `node-addon-system` | `flock.js` 放行 `android` 平台；配合 install.sh 5d 编译 android-arm64 `system.node`，会话写锁不再报 `ERR_FLOCK_UNSUPPORTED_PLATFORM` |
@@ -272,7 +272,7 @@ bash healthcheck.sh --verbose  # 附额外细节
 2. **`--expose-internals` 可达性**（shebang、`internal/modules/*`、原生 addon 是否被意外启用）
 3. 原生模块（`node-pty`、`koffi`、`sharp` 真实编解码、PTY 真实 spawn）
 4. 搜索后端（rg、`@vscode/ripgrep-android-arm64` shim）
-5. 补丁覆盖（逐个 `patch --dry-run --reverse` 验证）
+5. 补丁覆盖（逐个 `patch --dry-run --reverse` 验证；若上游已折叠同一改动，按行为探测判为 obsolete，而不是误报 NOT applied）
 6. 沙箱能力（proot 可执行性 + 明确的 partial 说明）
 7. 端口占用（connect 探测 + 未认证请求应返回 401）
 8. **`/sdcard` 与 FUSE 风险**（实测 `link(2)` / `rename(2)`，并检查 `DSH_HOME` 是否落在共享存储）
@@ -288,12 +288,12 @@ bash healthcheck.sh --verbose  # 附额外细节
 **升级 dsh 之后**（`npm i -g @deepseek-ai/dsh@<新版本>`）必须重跑安装脚本，否则补丁全丢：
 
 ```bash
-bash install.sh              # 默认装回 pin 的 0.2.2-rc.1
+bash install.sh              # 默认装回 pin 的 0.2.2-rc.3
 DSH_VERSION=0.2.3 bash install.sh   # 想试新版本：先确认补丁能干净应用，否则脚本会中止
 ```
 
 `install.sh` 现在会：
-- 安装**固定版本**（`DSH_VERSION`，默认 `0.2.2-rc.1`），不再 `@latest`
+- 安装**固定版本**（`DSH_VERSION`，默认 `0.2.2-rc.3`），不再 `@latest`
 - 以 `-F0` 精确匹配打补丁，漂移即 `[FAIL]`；02/09/11/koffi 失败**直接中止**，不会留下"装完启动即崩"的环境
 - 最后跑一次 `dsh --version` 作为交付前最后一关
 
@@ -340,7 +340,7 @@ deepseek-harness-termux/
 ## 免责声明
 
 1. **非官方**。本项目由社区维护，与 DeepSeek AI 及 `deepseek-harness` 官方无关，不受其支持或背书。
-2. **无稳定性承诺**。`@deepseek-ai/dsh` 当前为 `0.2.2-rc.1`（RC 版本）。本仓库的补丁针对该版本源码生成，**不保证跨版本有效**。
+2. **无稳定性承诺**。`@deepseek-ai/dsh` 当前为 `0.2.2-rc.3`（RC 版本）。本仓库的补丁针对该版本源码生成，**不保证跨版本有效**。
 3. **无安全承诺**。本文档已明确说明：proot 沙箱**不是安全边界**，`read-only` 策略不生效、宿主文件系统可见、进程身份无隔离。**不要在存放敏感凭据的设备上让它执行不可信命令。**
 4. **使用风险自负**。安装脚本会修改全局 npm 包（`$(npm root -g)/@deepseek-ai/dsh` 下的源码）与 `~/.bashrc`。`~/.bashrc` 只追加不改写。请在了解后果的前提下运行。
 5. **不提供担保**。按 MIT 许可，「软件按原样提供」，不附带任何明示或暗示的担保。

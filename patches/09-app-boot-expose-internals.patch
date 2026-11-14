@@ -1,6 +1,6 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -2562,13 +2562,27 @@
+@@ -2567,13 +2567,27 @@
  		return found;
  	}
  };

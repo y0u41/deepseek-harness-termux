@@ -36,7 +36,7 @@ const path = require("node:path");
 // Bump together with patches/: only a dsh version whose sources the patches
 // apply to cleanly is safe to pin here. Overridable via DSH_VERSION.
 // Keep in sync with install.sh (CI checks both).
-const DSH_VERSION = process.env.DSH_VERSION || "0.2.2-rc.1";
+const DSH_VERSION = process.env.DSH_VERSION || "0.2.2-rc.3";
 
 // The patches and the --expose-internals fallback are validated on this range.
 // dsh's own engines field is >=24.9.0; stay exact, do not guess.
@@ -181,7 +181,7 @@ function main() {
     ["05-host-directory-picker-native-android.patch", "dsh-host-directory-picker-native"],
     ["06-workspace-archive-skip-session-known-check.patch", "dsh-workspace"],
     ["07-sandbox-local-proot-runner.patch", "dsh-sandbox-local"],
-    ["08-dsh-tool-fs-search-android-rg.patch", "dsh-tool-fs-search"],
+    ["08-dsh-tool-fs-search-android-rg.patch", "dsh-util-ripgrep"],
     // 09 is what keeps the process alive at boot: upstream ships no android
     // build of node-addon-require-builtin, so dsh must go through
     // --expose-internals. 10 is only needed by the optional inspector bundle.

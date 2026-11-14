@@ -267,12 +267,38 @@ patch_target() {
         host-directory-picker-native-android)       echo "$DSH_PKGS/dsh-host-directory-picker-native" ;;
         workspace-archive-skip-session-known-check) echo "$DSH_PKGS/dsh-workspace" ;;
         sandbox-local-proot-runner)                 echo "$DSH_PKGS/dsh-sandbox-local" ;;
-        dsh-tool-fs-search-android-rg)              echo "$DSH_PKGS/dsh-tool-fs-search" ;;
+        dsh-tool-fs-search-android-rg)              echo "$DSH_PKGS/dsh-util-ripgrep" ;;
         app-boot-expose-internals)                  echo "$DSH_PKGS/dsh-app-boot" ;;
         inspector-worker-expose-internals)          echo "$DSH_PKGS/dsh-experimental-inspector" ;;
         koffi-statx)                                echo "$DSH_DIR/node_modules/koffi" ;;
         node-addon-system-flock-android)            echo "$DSH_PKGS/node-addon-system" ;;
         *)                                          echo "" ;;
+    esac
+}
+
+# A patch goes obsolete once upstream folds the same change in: its target file
+# may be renamed (content-hashed bundles) or moved into another package, so
+# `patch --reverse --dry-run` reports "not applied" although the behaviour is
+# already there. Detect the behaviour, not the diff shape.
+#
+# Each probe must see the change in *every* file the patch touches, so a
+# half-applied patch (one file patched, its sibling not) is still reported as
+# NOT applied instead of being excused as upstreamed.
+patch_upstreamed() {
+    case "$1" in
+        subprocess-local-android)
+            # Patch 03 flips both decisions: the inspector factory in the
+            # content-hashed runner-launch bundle and the state machine in
+            # lib/index.js. Require both.
+            grep -qs 'platform === "android"' "$DSH_PKGS/dsh-subprocess-local/lib/index.js" &&
+                grep -qs 'platform === "android"' "$DSH_PKGS/dsh-subprocess-local/lib"/runner-launch-*.js ;;
+        dsh-tool-fs-search-android-rg)
+            # Upstream moved ripgrep resolution into dsh-util-ripgrep, keeping
+            # the same Termux fallback (platform package -> system rg).
+            [ -f "$DSH_PKGS/dsh-util-ripgrep/lib/index.js" ] &&
+                grep -qs 'RIPGREP_BIN' "$DSH_PKGS/dsh-util-ripgrep/lib/index.js" ;;
+        *)
+            return 1 ;;
     esac
 }
 
@@ -286,6 +312,8 @@ if [ -d "$PATCH_DIR" ]; then
             warn "$base — target package not installed"
         elif ( cd "$tgt" && patch -p1 --dry-run --reverse < "$pf" >/dev/null 2>&1 ); then
             ok "$base applied"
+        elif patch_upstreamed "$key"; then
+            ok "$base obsolete — upstream already ships this change"
         else
             bad "$base NOT applied — re-run: bash install.sh"
         fi

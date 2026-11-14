@@ -1,23 +1,27 @@
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -3,6 +3,7 @@
- import { isAbsolute, join, parse, relative, sep } from "node:path";
- import { defineTool } from "@deepseek-ai/dsh-tools";
+@@ -1,4 +1,5 @@
  import { existsSync } from "node:fs";
 +import { createRequire } from "node:module";
- import { HarnessError } from "@deepseek-ai/dsh-llm";
- import { ItemRetainer, TextRetainer } from "@deepseek-ai/dsh-output-retention";
- //#region lib/types/search-core.js
-@@ -122,8 +123,25 @@
+ import { join, parse } from "node:path";
+ //#region lib/types/index.js
+ /** Packaged ripgrep resolution and subprocess execution, independent of tool or Remote consumers. */
+@@ -6,7 +7,8 @@
+ /**
+ * Resolve the packaged executable lazily, once per process. Single-file runtimes use an existing
+ * `-rg` sidecar; Electron uses the unpacked ASAR path. Resolution failures reject
+-* this call, not package loading. No system executable or remote fallback is used.
++* this call, not package loading. On platforms where `@vscode/ripgrep` ships no
++* prebuilt package (Termux/android-arm64), a system `rg` is used as a fallback.
+ * @returns the packaged executable's absolute path.
+ */
+ function resolveRgPath() {
+@@ -14,8 +16,21 @@
  		const executable = parse(process.execPath);
  		const executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;
  		if ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;
 -		const dependency = (await import("@vscode/ripgrep")).rgPath;
 -		return process.versions.electron === void 0 ? dependency : dependency.replace(/\.asar(?=[\\/])/u, ".asar.unpacked");
-+		// Termux (patch 08): @vscode/ripgrep ships no android-arm64 platform
-+		// package. Resolve the platform package without evaluating it, then fall
-+		// back to a system rg. Keep the Electron .asar -> .asar.unpacked rewrite
-+		// so desktop installs behave exactly as upstream.
 +		const require = createRequire(import.meta.url);
 +		const binaryName = process.platform === "win32" ? "rg.exe" : "rg";
 +		const unpackAsar = (candidate) => process.versions.electron === void 0 ? candidate : candidate.replace(/\.asar(?=[\\/])/u, ".asar.unpacked");

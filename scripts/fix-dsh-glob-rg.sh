@@ -14,7 +14,7 @@
 #   resolution, no module evaluation) with a system-rg fallback — this also
 #   bypasses Node's cached-errored @vscode/ripgrep ESM module in the live
 #   server process.
-# Then hot-reload the plugin: dev_reload_package "dsh-tool-fs-search".
+# Then hot-reload the plugin: dev_reload_package "dsh-util-ripgrep".
 #
 # Idempotent. Run it after `npm update -g @deepseek-ai/dsh` if glob/grep break.
 set -euo pipefail
@@ -50,7 +50,7 @@ ln -sf "$RG_SYSTEM" "$SHIM/bin/rg"
 echo "[1/2] shim ok: $SHIM/bin/rg -> $RG_SYSTEM"
 
 # ---- Part 2: apply the rg patch (context generated for the current dsh) -----
-PLUGIN_DIR="$DSH_ROOT/node_modules/@deepseek-ai/dsh-tool-fs-search"
+PLUGIN_DIR="$DSH_ROOT/node_modules/@deepseek-ai/dsh-util-ripgrep"
 [ -d "$PLUGIN_DIR" ] || { echo "plugin not found: $PLUGIN_DIR" >&2; exit 1; }
 PATCH="$(cd "$(dirname "$0")" && pwd)/../patches/08-dsh-tool-fs-search-android-rg.patch"
 [ -f "$PATCH" ] || { echo "patch file not found: $PATCH" >&2; exit 1; }
@@ -63,4 +63,4 @@ fi
 
 node --check "$PLUGIN_DIR/lib/index.js"
 echo "done. Apply to the live process (unless this just ran through the injector):"
-echo "  dev_reload_package \"dsh-tool-fs-search\""
+echo "  dev_reload_package \"dsh-util-ripgrep\""

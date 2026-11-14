@@ -39,7 +39,7 @@ for arg in "$@"; do
             echo "                      upgrading from an older dsh-termux release)"
             echo ""
             echo "Environment:"
-            echo "  DSH_VERSION=<ver>   dsh version to install (default: 0.2.2-rc.1)"
+            echo "  DSH_VERSION=<ver>   dsh version to install (default: 0.2.2-rc.3)"
             echo "  DSH_SKIP_PRECHECK=1 skip environment validation (unsupported)"
             exit 0
             ;;
@@ -495,7 +495,7 @@ echo "==> [3/10] Installing @deepseek-ai/dsh globally (no scripts)..."
 # day upstream published a new version, every patch would fail to apply and the
 # user got an install that crashed at boot with a success exit code.
 # Override deliberately: DSH_VERSION=0.2.3 bash install.sh
-: "${DSH_VERSION:=0.2.2-rc.1}"
+: "${DSH_VERSION:=0.2.2-rc.3}"
 export DSH_VERSION
 case "$DSH_VERSION" in
     *[!0-9A-Za-z.+-]*)
@@ -638,7 +638,7 @@ apply_patch "$REPO_DIR/patches/04-native-command-termux-open.patch"           "$
 apply_patch "$REPO_DIR/patches/05-host-directory-picker-native-android.patch" "$DSH_PKGS/dsh-host-directory-picker-native" || true
 apply_patch "$REPO_DIR/patches/06-workspace-archive-skip-session-known-check.patch" "$DSH_PKGS/dsh-workspace" || true
 apply_patch "$REPO_DIR/patches/07-sandbox-local-proot-runner.patch"           "$DSH_PKGS/dsh-sandbox-local" || true
-apply_patch "$REPO_DIR/patches/08-dsh-tool-fs-search-android-rg.patch"         "$DSH_PKGS/dsh-tool-fs-search" || true
+apply_patch "$REPO_DIR/patches/08-dsh-tool-fs-search-android-rg.patch"         "$DSH_PKGS/dsh-util-ripgrep" || true
 apply_critical_patch "$REPO_DIR/patches/09-app-boot-expose-internals.patch"    "$DSH_PKGS/dsh-app-boot"
 apply_patch "$REPO_DIR/patches/10-inspector-worker-expose-internals.patch"     "$DSH_PKGS/dsh-experimental-inspector" || true
 apply_critical_patch "$REPO_DIR/patches/11-node-addon-system-flock-android.patch" "$DSH_PKGS/node-addon-system"
@@ -870,7 +870,7 @@ for patch_file in "$REPO_DIR"/patches/*.patch; do
         host-directory-picker-native-android)       dir="$DSH_PKGS/dsh-host-directory-picker-native" ;;
         workspace-archive-skip-session-known-check) dir="$DSH_PKGS/dsh-workspace" ;;
         sandbox-local-proot-runner)                 dir="$DSH_PKGS/dsh-sandbox-local" ;;
-        dsh-tool-fs-search-android-rg)              dir="$DSH_PKGS/dsh-tool-fs-search" ;;
+        dsh-tool-fs-search-android-rg)              dir="$DSH_PKGS/dsh-util-ripgrep" ;;
         app-boot-expose-internals)                  dir="$DSH_PKGS/dsh-app-boot" ;;
         inspector-worker-expose-internals)          dir="$DSH_PKGS/dsh-experimental-inspector" ;;
         koffi-statx)                                dir="$DSH_DIR/node_modules/koffi" ;;
