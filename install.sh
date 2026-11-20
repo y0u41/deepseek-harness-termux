@@ -39,7 +39,7 @@ for arg in "$@"; do
             echo "                      upgrading from an older dsh-termux release)"
             echo ""
             echo "Environment:"
-            echo "  DSH_VERSION=<ver>   dsh version to install (default: 0.2.2-rc.3)"
+            echo "  DSH_VERSION=<ver>   dsh version to install (default: 0.2.2-rc.5)"
             echo "  DSH_SKIP_PRECHECK=1 skip environment validation (unsupported)"
             exit 0
             ;;
@@ -240,7 +240,9 @@ SYSTEM_PKGS=(
     binutils       # ar, strip, etc. (needed by node-gyp)
     cmake          # Native addon build system (koffi)
     make           # Build tool
-    python3        # node-gyp/gyp configure scripts
+    python         # node-gyp/gyp configure scripts (Termux ships Python 3 as
+                   # `python`; there is no `python3` package and asking for one
+                   # makes `pkg install` fail the whole step)
     pkg-config     # Library discovery
     patch          # Apply source patches
     git            # Version check / metadata / git-hosted plugins
@@ -328,7 +330,7 @@ if ! pkg_installed libandroid-spawn; then
         || echo "  [WARN] libandroid-spawn unavailable — continuing without it"
 fi
 
-TOOLS=(clang clang++ ar cmake make pkg-config patch git python3 node npm curl which)
+TOOLS=(clang clang++ ar cmake make pkg-config patch git python node npm curl which)
 TOOLS_MISSING=false
 for tool in "${TOOLS[@]}"; do
     if cmd_exists "$tool"; then
@@ -495,7 +497,7 @@ echo "==> [3/10] Installing @deepseek-ai/dsh globally (no scripts)..."
 # day upstream published a new version, every patch would fail to apply and the
 # user got an install that crashed at boot with a success exit code.
 # Override deliberately: DSH_VERSION=0.2.3 bash install.sh
-: "${DSH_VERSION:=0.2.2-rc.3}"
+: "${DSH_VERSION:=0.2.2-rc.5}"
 export DSH_VERSION
 case "$DSH_VERSION" in
     *[!0-9A-Za-z.+-]*)

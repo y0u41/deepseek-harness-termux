@@ -1,6 +1,6 @@
 {
   "_comment": "Single source of truth for patch -> target package. Consumed by .github/workflows/ci.yml. install.sh, healthcheck.sh and prebuilt/install.js keep their own tables (they run on-device without node/jq guarantees), but CI fails when a patch file has no entry here, so a newly added patch cannot be silently skipped everywhere.",
-  "dshVersion": "0.2.2-rc.3",
+  "dshVersion": "0.2.2-rc.5",
   "patches": {
     "01-terminal-bash-android-shell.patch": {
       "package": "@deepseek-ai/dsh-terminal-bash",

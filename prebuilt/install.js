@@ -36,7 +36,7 @@ const path = require("node:path");
 // Bump together with patches/: only a dsh version whose sources the patches
 // apply to cleanly is safe to pin here. Overridable via DSH_VERSION.
 // Keep in sync with install.sh (CI checks both).
-const DSH_VERSION = process.env.DSH_VERSION || "0.2.2-rc.3";
+const DSH_VERSION = process.env.DSH_VERSION || "0.2.2-rc.5";
 
 // The patches and the --expose-internals fallback are validated on this range.
 // dsh's own engines field is >=24.9.0; stay exact, do not guess.

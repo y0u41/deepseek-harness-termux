@@ -61,8 +61,8 @@ body:
     id: version
     attributes:
       label: dsh-termux 版本
-      description: 仓库 tag 或 `git -C <repo> describe --tags`（例如 v0.2.2-termux.2）
-      placeholder: v0.2.2-termux.2
+      description: 仓库 tag 或 `git -C <repo> describe --tags`（例如 v0.2.2-termux.4）
+      placeholder: v0.2.2-termux.4
 
   - type: textarea
     id: extra

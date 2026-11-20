@@ -1,7 +1,68 @@
 # Changelog
 
 本项目的版本号沿用 `<dsh 版本>-termux.<补丁发布号>`。
-补丁发布号递增表示"同一上游 dsh 版本上的仓库更新"，升级方式见 README 的「升级与卸载」。
+补丁发布号递增表示"同一上游 dsh 版本上的仓库更新"；上游在同一 minor 内推进 RC（rc.3 → rc.5）
+时前缀 `0.2.2` 不变，只递增发布号。升级方式见 README 的「升级与卸载」。
+
+## v0.2.2-termux.4 — 2026-11-20
+
+上游适配版本从 `0.2.2-rc.3` 升级到 `0.2.2-rc.5`（npm 的 `latest` 与 `next` tag 现在都指向 rc.5）。
+**本轮没有任何补丁需要重新生成**：12 个补丁在 rc.5 上全部 `-F0` 干净应用，并逐条做了运行时验证。
+
+### 为什么补丁不用改（逐条核对，不是“试了一下没报错”）
+
+- 对比 rc.3 与 rc.5 的 12 个目标包源码，唯一有代码变更的是
+  `@deepseek-ai/dsh-session-persistence-jsonl/lib/worker.cjs`（新增 `CONTENT_REFUSED` 错误码）。
+  补丁 02 改的是同包的 `lib/index.js`，不在变更区，所以 `-F0` 依旧精确命中。
+- `@deepseek-ai/dsh/lib/*`（补丁 04 依赖的内联副本、09/10 依赖的 bundle）逐字节未变；
+  `dsh-subprocess-local/lib/runner-launch-CKTiL8M8.js` 的文件名与内容都没变，
+  所以补丁 03 **不需要**跟着构建哈希改名（termux.3 时正是它改名导致重生成）。
+- 其余 9 个目标包，以及 `koffi@3.1.1`、`@deepseek-ai/node-addon-system@0.1.2` 均未变。
+
+### 运行时验证（真机：Android 16 / SDK 36 / aarch64，Node 26.13.1）
+
+- `bash install.sh` 全绿：12/12 补丁 `[APPLIED]`，node-pty / koffi / flock / ripgrep shim 全部 OK，
+  `dsh --version` 为 `0.2.2-rc.5`
+- `bash healthcheck.sh`：**40 passed / 6 warnings / 0 failures**（6 条 warning 均为文档化的平台限制）
+- 行为级抽查，不只看“补丁打过”：
+  - 04：`canOpenNativePath({platform:"android"}) === true`
+  - 08：`resolveRgPath()` → `$PREFIX/bin/rg`（文件存在）
+  - 03：`platform === "android"` 走 `LinuxProcessInspector` 分支
+  - 01：`defaultBashShell()` 解析到 `$PREFIX/bin/bash`
+- `dsh web` 实际启动成功（打印 token URL；HTTP 401 是未带 token 的预期结果）
+
+### 修复：install.sh 把 Termux 已不存在的 `python3` 当作包名（阻断级）
+
+- 当前 Termux 的 Python 3 包名是 **`python`**，`python3` 只是可执行文件符号链接，仓库里没有名为 `python3` 的包
+- 原 step 0 用 `dpkg -s python3` 判断，永远 MISS → 触发 `pkg install python3` → 必失败 → **整个安装在第一步中止**（本轮实机复现）
+- 改为 `python`（`SYSTEM_PKGS` 与 step 0 后的 `TOOLS` 两处），并注明原因；
+  `PYTHON=` 发现逻辑仍优先 `python3`，node-gyp 侧不受影响
+
+### 已知问题与文档：profile 插件版本漂移
+
+- dsh 0.2.2 起对 `~/.dsh/profiles/*` 里安装的插件做 exact-version 校验。dsh 升到 rc.5 后，
+  锁在 rc.3 的 `@deepseek-ai/dsh-tool-subagent` 会被禁用，日志出现
+  `disabling profile plugin row ... incompatible with dsh 0.2.2-rc.5`，subagent 相关行随之消失
+- 处理方式写进 `troubleshooting.md` 第 17 节，README「升级与卸载」加了提醒
+- 本机已按该流程把 `~/.dsh/profiles/web` 的 `@deepseek-ai/dsh-subagent-codex` 由 rc.3 升到 rc.5
+  （`pnpm install` 后传递依赖 `dsh-tool-subagent` 同样为 rc.5），重启 `dsh web` 后不再有禁用日志
+
+### healthcheck 新增第 11 节：profile 插件版本检查
+
+- 扫描 `~/.dsh/profiles/*/package.json` 里形如 `0.2.2-rc.N` 的 `@deepseek-ai/dsh-*` 依赖，
+  以及已解析的 `node_modules/@deepseek-ai/dsh-tool-subagent/package.json`，与当前 dsh 版本对比
+- 不匹配时 WARN 并给出修复提示（升依赖 + `pnpm install`，指向 troubleshooting 第 17 节）
+- 不引入 FAIL：升级 dsh 而插件暂无新版本时，这是可接受的降级
+
+### 版本同步
+
+- `install.sh` / `prebuilt/install.js` / `patches/targets.json` / `.github/workflows/ci.yml`
+  的 pin 统一为 `0.2.2-rc.5`；`DSH_VERSION=<ver>` 仍可覆盖
+- `prebuilt/package.json`：`0.2.2-termux.3` → `0.2.2-termux.4`，issue 模板里的示例版本同步
+- 上游行为变更（与补丁无关，仅记录，便于用户对比升级前后）：
+  - rc.3 起 DeepSeek 流式内容拒答的错误码 `MALFORMED_RESPONSE` → `CONTENT_REFUSED`
+  - rc.4 起交付组合不再固定搜索提供方，DeepSeek 模型的会话中网页搜索回落到旧版 Messages 搜索
+    （rc.5 没有新的 upgrade-guide 条目，即无破坏性接口变更）
 
 ## v0.2.2-termux.3 — 2026-11-14
 

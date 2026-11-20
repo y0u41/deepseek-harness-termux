@@ -489,7 +489,54 @@ else
     warn "termux-wake-lock missing"
 fi
 
-# ── Summary ─────────────────────────────────────────────────────────────────
+# ── 11. Profile plugins pinned to the dsh version ───────────────────────
+# ~/.dsh/profiles/*/package.json holds plugins the user installed themselves.
+# Since dsh 0.2.2 these declare EXACT dsh requirements and are disabled at boot
+# when they mismatch the running dsh (log: "disabling profile plugin row ...
+# incompatible with dsh <ver>"). install.sh never touches profiles, so bumping
+# dsh can silently remove features. Catch that here instead of reading logs.
+sec "11. Profile plugins (exact dsh version match)"
+
+DSH_VER="$(node -p "require('$DSH_DIR/package.json').version" 2>/dev/null)"
+if [ -z "$DSH_VER" ]; then
+    warn "cannot determine the installed dsh version — skipping the profile plugin check"
+elif [ ! -d "$DSH_HOME/profiles" ]; then
+    info "no profiles directory ($DSH_HOME/profiles) — nothing to check"
+else
+    PROFILE_DRIFT=0
+    for pj in "$DSH_HOME"/profiles/*/package.json; do
+        [ -f "$pj" ] || continue
+        prof="$(basename "$(dirname "$pj")")"
+        drift="$(node -e '
+const fs = require("node:fs");
+const [file, want] = process.argv.slice(1);
+const deps = Object.entries(JSON.parse(fs.readFileSync(file, "utf8")).dependencies || {});
+const pinned = deps.filter(([n, v]) => /^@deepseek-ai\/dsh/.test(n)
+    && /^\d+\.\d+\.\d+-/.test(String(v)) && v !== want)
+  .map(([n, v]) => n + "@" + v);
+process.stdout.write(pinned.join(" "));
+' "$pj" "$DSH_VER" 2>/dev/null)"
+        if [ -n "$drift" ]; then
+            warn "profile '$prof' pins dsh packages to another release: $drift (installed dsh $DSH_VER)"
+            echo "         dsh disables those plugins at boot. Fix: bump the deps, run pnpm install"
+            echo "         (troubleshooting.md #17)"
+            PROFILE_DRIFT=$((PROFILE_DRIFT + 1))
+        fi
+    done
+    # The plugin that actually triggers the boot warning is usually a transitive
+    # dep (dsh-subagent-codex -> dsh-tool-subagent), so check the resolved copy.
+    for ts in "$DSH_HOME"/profiles/*/node_modules/@deepseek-ai/dsh-tool-subagent/package.json; do
+        [ -f "$ts" ] || continue
+        tv="$(node -p "require('$ts').version" 2>/dev/null)"
+        if [ -n "$tv" ] && [ "$tv" != "$DSH_VER" ]; then
+            warn "resolved dsh-tool-subagent is $tv but dsh is $DSH_VER — subagent rows get disabled"
+            PROFILE_DRIFT=$((PROFILE_DRIFT + 1))
+        fi
+    done
+    [ "$PROFILE_DRIFT" -eq 0 ] && ok "profile plugins match dsh $DSH_VER"
+fi
+
+# ── Summary ─────────────────────────────────────────────────────────
 if [ "$QUIET" = 0 ]; then
     printf '\n%s== Summary ==%s\n' "$C_SEC" "$C_OFF"
     printf '  %s%d passed%s   %s%d warnings%s   %s%d failures%s\n' "$C_OK" "$PASS" "$C_OFF" "$C_WARN" "$WARN" "$C_OFF" "$C_BAD" "$FAIL" "$C_OFF"

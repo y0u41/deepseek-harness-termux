@@ -476,7 +476,7 @@ cd ~/deepseek-harness-termux && bash install.sh
 
 `install.sh` 是幂等的：已应用的补丁跳过，已编译的产物跳过；但被覆盖掉的补丁会被重新应用。
 
-**版本漂移警告**：补丁是按 `@deepseek-ai/dsh` 0.2.2-rc.3 的源码上下文生成的（`diff -u` 精确匹配）。上游改动过大时 `patch` 会拒绝应用，脚本会打印 `[SKIP] ... inapplicable`。此时需要重新生成补丁，不能盲目重跑。
+**版本漂移警告**：补丁是按 `@deepseek-ai/dsh` 0.2.2-rc.5 的源码上下文生成的（`diff -u` 精确匹配）。上游改动过大时 `patch` 会拒绝应用，脚本会打印 `[SKIP] ... inapplicable`。此时需要重新生成补丁，不能盲目重跑。
 
 ### 是否彻底解决
 
@@ -519,6 +519,59 @@ cd ~/deepseek-harness-termux && bash install.sh
 ### 是否彻底解决
 
 **已彻底解决**（android-arm64 上 `flock` 加锁返回 0，竞争返回 EAGAIN=11，与 `SessionAlreadyOwnedError` 分支正确对应）。
+
+---
+
+## 17. 升级 dsh 后插件被禁用：`disabling profile plugin row ... incompatible with dsh <新版本>`
+
+### 现象
+
+升级到新的 dsh 后启动，日志里反复出现（节选）：
+
+```
+dsh: disabling profile plugin row "tool-subagent": Plugin @deepseek-ai/dsh-tool-subagent@0.2.2-rc.3
+is incompatible with dsh 0.2.2-rc.5: requirements {"@deepseek-ai/dsh-agent":"0.2.2-rc.3", ...}
+dsh: disabling profile plugin row "tool-subagent-fork": ...
+```
+
+`dsh web` 仍能打开，但 subagent / 模型选择等对应的界面行消失。
+
+### 原因
+
+dsh 0.2.2 起会对 `~/.dsh/profiles/<profile>/` 里安装的插件做 **exact-version 校验**：
+插件 `package.json` 里 `dsh.requirements` 声明的 dsh 包版本必须与当前运行时一致，
+不一致就被禁用（宁可少功能，也不带着错配的插件跑）。
+
+这些插件不在本仓库的 12 个补丁范围内，`install.sh` 也不会碰 profile ——
+所以「dsh 升了、profile 没升」时就会出现这个日志。典型链条：
+
+```
+@deepseek-ai/dsh-subagent-codex@0.2.2-rc.3  →  依赖 @deepseek-ai/dsh-tool-subagent@0.2.2-rc.3
+```
+
+### 解决方案
+
+把 profile 里对 dsh 版本敏感的依赖一起升到新版本，然后重装：
+
+```bash
+cd ~/.dsh/profiles/web                 # 换成你实际用的 profile 名（ls ~/.dsh/profiles）
+cp package.json package.json.bak-rc5   # 先备份，便于回滚
+sed -i 's/"@deepseek-ai\/dsh-subagent-codex": "0.2.2-rc.3"/"@deepseek-ai\/dsh-subagent-codex": "0.2.2-rc.5"/' package.json
+pnpm install
+
+# 传递依赖也要是新版本
+node -p "require('./node_modules/@deepseek-ai/dsh-tool-subagent/package.json').version"
+```
+
+再重启 `dsh web`，日志里不应再出现 `disabling profile plugin row`。
+
+例外：如果上游还没发布对应版本的插件，可以用上游提供的显式豁免
+（`dsh plugin allow-version` 或插件管理器里的“exact-version exemption”），
+但这是“我知道有风险”——插件只要用到 rc.3 的接口就有可能在 rc.5 上崩。
+
+### 是否彻底解决
+
+**是（前提是插件有对应版本）。** 版本号是显式锁定的，升级 dsh 时记住同步 profile。
 
 ---
 
